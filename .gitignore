@@ -1,6 +1,6 @@
 # Binaries
-longbridge-fs
-build/
+/longbridge-fs
+/build/
 
 # Test binary, built with `go test -c`
 *.test
@@ -12,8 +12,9 @@ build/
 go.work
 
 # Credential files (contain secrets)
-credential
+/credential
 configs/credential
+!configs/credential.example
 
 # Data directories
 fs/

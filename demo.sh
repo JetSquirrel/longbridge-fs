@@ -1,8 +1,10 @@
 #!/bin/bash
 set -e
 
+BIN="go run ./cmd/longbridge-fs"
+
 echo "==> 1. 初始化文件系统"
-go run . init --root ./fs
+$BIN init --root ./fs
 
 echo ""
 echo "==> 2. 查看初始账户状态"
@@ -14,7 +16,7 @@ cat fs/trade/beancount.txt
 
 echo ""
 echo "==> 4. 启动 controller（mock 模式，后台运行）"
-go run . controller --root ./fs --interval 1s --mock --compact-after 4 &
+$BIN controller --root ./fs --interval 1s --mock --compact-after 4 &
 CONTROLLER_PID=$!
 sleep 1
 

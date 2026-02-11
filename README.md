@@ -9,8 +9,10 @@ Longbridge FS 是一个基于文件系统的股票交易框架，通过读写文
 ### 核心特性
 
 - **文件驱动** — 通过文件读写完成所有交易操作
-- **AI 友好** — 天然适配 AI Agent 的文件操作能力
+- **AI 友好** — JSON 输出，天然适配 AI Agent 的文件操作能力
 - **审计追踪** — 所有交易记录在 beancount 格式的 append-only 账本中
+- **盈亏追踪** — 自动生成 `pnl.json` 和 `portfolio.json`
+- **风控止损** — 配置 `risk_control.json` 实现自动止损/止盈
 - **容错降级** — 网络故障时自动切换到 Mock 模式
 - **Kill Switch** — 创建 `.kill` 文件即可安全停止 controller
 
@@ -29,15 +31,22 @@ longbridge-fs/
 │   ├── credential/credential.go # 凭证加载 → config.Config
 │   ├── broker/broker.go         # 订单执行（SDK / Mock）
 │   ├── market/market.go         # 行情获取（overview / K线 / 分时）
-│   └── account/account.go       # 账户状态刷新
+│   ├── account/account.go       # 账户状态 / PnL / Portfolio
+│   └── risk/risk.go             # 风控引擎（止损/止盈）
 ├── configs/
 │   └── credential               # API 凭证 (key=value)
 ├── fs/                          # 运行时数据目录
-│   ├── account/state.json
-│   ├── trade/beancount.txt
-│   ├── trade/blocks/
-│   ├── quote/hold/{SYMBOL}/
-│   └── quote/track/
+│   ├── account/
+│   │   ├── state.json           # 账户状态
+│   │   └── pnl.json             # 持仓盈亏
+│   ├── trade/
+│   │   ├── beancount.txt        # 交易账本
+│   │   ├── risk_control.json    # 风控规则
+│   │   └── blocks/              # 归档区块
+│   └── quote/
+│       ├── hold/{SYMBOL}/       # 行情数据 (.txt + .json)
+│       ├── track/               # 行情触发器
+│       └── portfolio.json       # 组合总览
 ├── Makefile
 ├── go.mod
 └── go.sum
@@ -123,10 +132,36 @@ Controller 会自动检测新 ORDER 并执行，结果追加为 EXECUTION 或 RE
 touch fs/quote/track/AAPL.US
 
 # Controller 获取后数据在 hold 目录，track 文件被自动删除
-cat fs/quote/hold/AAPL.US/overview.txt
-cat fs/quote/hold/AAPL.US/D.txt      # 日K (120天)
-cat fs/quote/hold/AAPL.US/W.txt      # 周K (52周)
-cat fs/quote/hold/AAPL.US/5D.txt     # 5分钟K线
+cat fs/quote/hold/AAPL.US/overview.json   # 实时报价 (JSON)
+cat fs/quote/hold/AAPL.US/overview.txt    # 实时报价 (文本)
+cat fs/quote/hold/AAPL.US/D.json          # 日K (120天, JSON)
+cat fs/quote/hold/AAPL.US/W.json          # 周K (52周, JSON)
+cat fs/quote/hold/AAPL.US/5D.json         # 5分钟K线 (JSON)
+cat fs/quote/hold/AAPL.US/intraday.json   # 分时数据 (JSON)
+```
+
+### 查看盈亏
+
+```bash
+# PnL 报告 (持仓 + 当前价格 → 未实现盈亏)
+cat fs/account/pnl.json
+
+# 组合总览 (所有持仓 + 行情)
+cat fs/quote/portfolio.json
+```
+
+### 风控止损
+
+```bash
+# 配置止损/止盈规则
+cat > fs/trade/risk_control.json << 'EOF'
+{
+  "700.HK":  { "stop_loss": 280.0, "take_profit": 350.0 },
+  "AAPL.US": { "stop_loss": 150.0, "take_profit": 210.0, "qty": "10" }
+}
+EOF
+# 当价格触及阈值时，controller 自动追加 SELL ORDER 到 beancount.txt
+# 触发后规则自动移除，避免重复下单
 ```
 
 ### Kill Switch

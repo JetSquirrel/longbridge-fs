@@ -1,0 +1,42 @@
+# Binaries
+longbridge-fs
+build/
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# Credential files (contain secrets)
+credential
+configs/credential
+
+# Data directories
+fs/
+test-fs/
+
+# Logs
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+
+
+user-story.md
+PROJECT_STRUCTURE.md

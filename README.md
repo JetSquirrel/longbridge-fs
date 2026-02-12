@@ -15,6 +15,7 @@ Longbridge FS 是一个基于文件系统的股票交易框架，通过读写文
 
 - **文件驱动** — 通过文件读写完成所有交易操作，AI Agent 无需学习 API
 - **AI 友好** — JSON 输出，天然适配 AI Agent 的文件操作能力
+- **实时行情** — 支持 WebSocket 订阅，高效获取实时行情推送
 - **审计追踪** — 所有交易记录在 beancount 格式的 append-only 账本中
 - **盈亏追踪** — 自动生成 `pnl.json` 和 `portfolio.json`，实时追踪持仓盈亏
 - **风控止损** — 配置 `risk_control.json` 实现自动止损/止盈
@@ -58,7 +59,9 @@ longbridge-fs/
 │   │   └── blocks/              # 归档区块
 │   └── quote/
 │       ├── hold/{SYMBOL}/       # 行情数据 (.txt + .json)
-│       ├── track/               # 行情触发器
+│       ├── track/               # 行情触发器（一次性拉取）
+│       ├── subscribe/           # WebSocket 订阅请求
+│       ├── unsubscribe/         # WebSocket 取消订阅请求
 │       └── portfolio.json       # 组合总览
 ├── Makefile
 ├── go.mod
@@ -140,6 +143,32 @@ Controller 会自动检测新 ORDER 并执行，结果追加为 EXECUTION 或 RE
 
 ### 查询行情
 
+#### 方式一：WebSocket 实时订阅（推荐）
+
+通过 WebSocket 订阅后，行情数据会自动实时更新，无需手动触发：
+
+```bash
+# 订阅实时行情
+touch fs/quote/subscribe/AAPL.US
+touch fs/quote/subscribe/700.HK
+
+# Controller 会自动处理订阅请求
+# 订阅成功后，overview.json 和 overview.txt 会自动更新
+cat fs/quote/hold/AAPL.US/overview.json   # 实时更新的行情
+
+# 取消订阅
+touch fs/quote/unsubscribe/AAPL.US
+```
+
+**优势**：
+- 高效：WebSocket 长连接，延迟低
+- 实时：价格变动时自动推送更新
+- 省资源：无需轮询，减少 API 调用
+
+#### 方式二：一次性拉取（按需获取）
+
+适合需要历史 K 线、分时等完整行情数据的场景：
+
 ```bash
 # 触发行情获取
 touch fs/quote/track/AAPL.US
@@ -152,6 +181,11 @@ cat fs/quote/hold/AAPL.US/W.json          # 周K (52周, JSON)
 cat fs/quote/hold/AAPL.US/5D.json         # 5分钟K线 (JSON)
 cat fs/quote/hold/AAPL.US/intraday.json   # 分时数据 (JSON)
 ```
+
+**使用建议**：
+- 使用 `subscribe/` 订阅需要实时监控的股票（如持仓股票、关注列表）
+- 使用 `track/` 按需获取历史数据（如回测、分析）
+- 两种方式可以同时使用，互不影响
 
 ### 查看盈亏
 
@@ -194,6 +228,35 @@ make deps     # 下载依赖
 ```
 
 ## 进阶功能
+
+### WebSocket 实时行情订阅
+
+系统支持两种行情获取方式：
+
+1. **WebSocket 订阅**：适合需要实时监控的场景
+   - 订阅后自动推送更新，无需轮询
+   - 低延迟，高效率
+   - 适合监控持仓、关注列表
+
+2. **一次性拉取**：适合按需查询的场景
+   - 通过 `track/` 目录触发
+   - 获取完整数据（K线、分时等）
+   - 适合数据分析、回测
+
+订阅示例：
+
+```bash
+# 订阅实时行情
+touch fs/quote/subscribe/AAPL.US
+
+# 订阅成功后，每当 AAPL.US 价格变化时
+# fs/quote/hold/AAPL.US/overview.json 会自动更新
+
+# 取消订阅
+touch fs/quote/unsubscribe/AAPL.US
+```
+
+**注意**：WebSocket 订阅仅更新 `overview.json` 和 `overview.txt`。如需 K 线、分时等数据，请使用 `track/` 方式。
 
 ### 批量订单处理
 

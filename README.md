@@ -154,7 +154,7 @@ touch fs/quote/subscribe/700.HK
 
 # Controller 会自动处理订阅请求
 # 订阅成功后，overview.json 和 overview.txt 会自动更新
-cat fs/quote/hold/AAPL.US/overview.json   # 实时更新的行情
+cat fs/quote/hold/AAPL.US/overview.json   # 实时更新的行情（文件较小，适合直接查看）
 
 # 取消订阅
 touch fs/quote/unsubscribe/AAPL.US
@@ -174,12 +174,19 @@ touch fs/quote/unsubscribe/AAPL.US
 touch fs/quote/track/AAPL.US
 
 # Controller 获取后数据在 hold 目录，track 文件被自动删除
-cat fs/quote/hold/AAPL.US/overview.json   # 实时报价 (JSON)
-cat fs/quote/hold/AAPL.US/overview.txt    # 实时报价 (文本)
-cat fs/quote/hold/AAPL.US/D.json          # 日K (120天, JSON)
-cat fs/quote/hold/AAPL.US/W.json          # 周K (52周, JSON)
-cat fs/quote/hold/AAPL.US/5D.json         # 5分钟K线 (JSON)
-cat fs/quote/hold/AAPL.US/intraday.json   # 分时数据 (JSON)
+cat fs/quote/hold/AAPL.US/overview.json   # 实时报价 (JSON，小文件)
+cat fs/quote/hold/AAPL.US/overview.txt    # 实时报价 (文本，小文件)
+
+# 查看历史 K 线数据（使用分页避免输出过多）
+head -20 fs/quote/hold/AAPL.US/D.json        # 查看前 20 行
+tail -20 fs/quote/hold/AAPL.US/D.json        # 查看后 20 行
+jq '.[0:10]' fs/quote/hold/AAPL.US/D.json    # 查看前 10 条 K 线数据
+jq '.[-10:]' fs/quote/hold/AAPL.US/D.json    # 查看最后 10 条 K 线数据
+
+# 其他 K 线文件
+jq '.[0:10]' fs/quote/hold/AAPL.US/W.json    # 周K 前 10 条
+jq '.[0:10]' fs/quote/hold/AAPL.US/5D.json   # 5分钟K 前 10 条
+jq '.[0:10]' fs/quote/hold/AAPL.US/intraday.json  # 分时数据前 10 条
 ```
 
 **使用建议**：
@@ -193,8 +200,15 @@ cat fs/quote/hold/AAPL.US/intraday.json   # 分时数据 (JSON)
 # PnL 报告 (持仓 + 当前价格 → 未实现盈亏)
 cat fs/account/pnl.json
 
+# 如果持仓较多，使用 jq 分页查看
+jq '.positions[0:5]' fs/account/pnl.json    # 查看前 5 个持仓
+jq '.positions[-5:]' fs/account/pnl.json    # 查看最后 5 个持仓
+
 # 组合总览 (所有持仓 + 行情)
 cat fs/quote/portfolio.json
+
+# 如果持仓较多，使用 jq 分页查看
+jq '.holdings[0:10]' fs/quote/portfolio.json  # 查看前 10 个持仓
 ```
 
 ### 风控止损
@@ -312,6 +326,27 @@ fs/trade/blocks/
 ```
 
 主账本文件 `beancount.txt` 只保留未执行的订单，保持文件精简。
+
+### 查看账本记录（分页）
+
+由于 `beancount.txt` 是 append-only 账本，随着交易增加会不断增长。建议使用分页方式查看：
+
+```bash
+# 查看最后 50 行（最近的订单）
+tail -50 fs/trade/beancount.txt
+
+# 查看前 50 行（最早的订单）
+head -50 fs/trade/beancount.txt
+
+# 查看特定范围的行（例如第 100-150 行）
+sed -n '100,150p' fs/trade/beancount.txt
+
+# 搜索特定股票的订单
+grep "AAPL.US" fs/trade/beancount.txt | tail -20
+
+# 查看归档的历史区块
+tail -50 fs/trade/blocks/block_0001.txt
+```
 
 ### 行情数据格式
 

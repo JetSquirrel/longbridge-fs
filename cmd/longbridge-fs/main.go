@@ -80,6 +80,8 @@ func cmdInit() {
 		filepath.Join(*root, "trade", "blocks"),
 		filepath.Join(*root, "quote", "hold"),
 		filepath.Join(*root, "quote", "track"),
+		filepath.Join(*root, "quote", "subscribe"),
+		filepath.Join(*root, "quote", "unsubscribe"),
 		filepath.Join(*root, "quote", "market"),
 	}
 	for _, d := range dirs {
@@ -133,6 +135,7 @@ func cmdController() {
 
 	var tc *trade.TradeContext
 	var qc *quote.QuoteContext
+	var subManager *market.SubscriptionManager
 	useMock := *mock
 
 	if !useMock {
@@ -166,6 +169,12 @@ func cmdController() {
 
 	if useMock {
 		log.Println("running in MOCK mode (no API calls)")
+	}
+
+	// Initialize subscription manager
+	subManager = market.NewSubscriptionManager(qc, *root)
+	if qc != nil {
+		log.Println("WebSocket subscription manager initialized")
 	}
 
 	log.Printf("controller started: root=%s interval=%s compact-after=%d", *root, *interval, *compactAfter)
@@ -202,7 +211,14 @@ func cmdController() {
 				}
 			}
 
-			// Refresh quotes (only with real API)
+			// Process WebSocket subscription requests (subscribe/unsubscribe)
+			if subManager != nil {
+				if err := subManager.ProcessSubscriptions(ctx); err != nil {
+					log.Printf("subscription processing failed: %v", err)
+				}
+			}
+
+			// Refresh quotes via track files (one-shot poll-based)
 			if qc != nil {
 				market.RefreshQuotes(ctx, qc, *root)
 			}

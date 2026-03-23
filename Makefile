@@ -1,4 +1,4 @@
-.PHONY: build clean test run install
+.PHONY: build clean test run install init help
 
 # Go parameters
 GOCMD=go
@@ -23,6 +23,9 @@ VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME=$(shell date -u '+%Y-%m-%d_%H:%M:%S')
 LDFLAGS=-ldflags "-X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME)"
 
+# Default target
+.DEFAULT_GOAL := help
+
 all: clean deps build
 
 build:
@@ -45,8 +48,13 @@ deps:
 test:
 	$(GOTEST) -v ./...
 
+# Initialize file system (creates default directories)
+init: build
+	@echo "Initializing file system..."
+	$(BUILD_DIR)/$(BINARY_NAME) init --root ./fs
+
 run: build
-	@echo "Running controller..."
+	@echo "Running controller with real API..."
 	$(BUILD_DIR)/$(BINARY_NAME) controller --root ./fs --credential ./configs/credential
 
 install: build
@@ -59,7 +67,13 @@ uninstall:
 
 # Development helpers
 dev: build
+	@echo "Running controller in mock mode..."
 	$(BUILD_DIR)/$(BINARY_NAME) controller --root ./fs --mock
+
+# Run with verbose output
+dev-verbose: build
+	@echo "Running controller in mock mode with verbose output..."
+	$(BUILD_DIR)/$(BINARY_NAME) controller --root ./fs --mock --verbose
 
 fmt:
 	@echo "Formatting code..."
@@ -78,16 +92,34 @@ docker-run:
 
 # Help
 help:
+	@echo "Longbridge FS - File system-based stock trading framework"
+	@echo ""
 	@echo "Usage: make [target]"
 	@echo ""
-	@echo "Targets:"
-	@echo "  build        Build the binary"
-	@echo "  clean        Clean build artifacts"
-	@echo "  deps         Download dependencies"
-	@echo "  test         Run tests"
-	@echo "  run          Run the controller"
-	@echo "  dev          Run in mock mode (no API)"
-	@echo "  install      Install to /usr/local/bin"
-	@echo "  fmt          Format code"
-	@echo "  lint         Lint code"
-	@echo "  help         Show this help"
+	@echo "Available targets:"
+	@echo "  build         Build the binary"
+	@echo "  clean         Clean build artifacts"
+	@echo "  deps          Download and tidy dependencies"
+	@echo "  test          Run tests"
+	@echo "  init          Initialize FS directory structure"
+	@echo "  run           Run controller with real API"
+	@echo "  dev           Run controller in mock mode (no API)"
+	@echo "  dev-verbose   Run controller in mock mode with verbose output"
+	@echo "  install       Install to /usr/local/bin"
+	@echo "  uninstall     Remove from /usr/local/bin"
+	@echo "  fmt           Format code"
+	@echo "  lint          Lint code (requires golangci-lint)"
+	@echo "  help          Show this help message"
+	@echo ""
+	@echo "Docker targets:"
+	@echo "  docker-build  Build Docker image"
+	@echo "  docker-run    Run Docker container"
+	@echo ""
+	@echo "Examples:"
+	@echo "  make build              # Build the binary"
+	@echo "  make init               # Initialize file system"
+	@echo "  make dev                # Run in mock mode"
+	@echo "  make run                # Run with real API"
+	@echo ""
+	@echo "Version: $(VERSION)"
+	@echo "Build time: $(BUILD_TIME)"

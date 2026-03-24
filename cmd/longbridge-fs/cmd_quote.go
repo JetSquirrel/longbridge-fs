@@ -94,13 +94,13 @@ func outputQuotesTable(quotes []*quote.SecurityQuote) error {
 
 		fmt.Fprintf(w, "| %s\t| %.3f\t| %.3f\t| %.3f\t| %.3f\t| %.3f\t| %d\t| %.3f\t| %s\t|\n",
 			q.Symbol,
-			q.LastDone,
-			q.PrevClose,
-			q.Open,
-			q.High,
-			q.Low,
+			decFloat(q.LastDone),
+			decFloat(q.PrevClose),
+			decFloat(q.Open),
+			decFloat(q.High),
+			decFloat(q.Low),
 			q.Volume,
-			q.Turnover,
+			decFloat(q.Turnover),
 			status,
 		)
 	}
@@ -123,13 +123,13 @@ func formatQuotesForJSON(quotes []*quote.SecurityQuote) []map[string]interface{}
 
 		result[i] = map[string]interface{}{
 			"symbol":     q.Symbol,
-			"last":       fmt.Sprintf("%.3f", q.LastDone),
-			"prev_close": fmt.Sprintf("%.3f", q.PrevClose),
-			"open":       fmt.Sprintf("%.3f", q.Open),
-			"high":       fmt.Sprintf("%.3f", q.High),
-			"low":        fmt.Sprintf("%.3f", q.Low),
+			"last":       fmt.Sprintf("%.3f", decFloat(q.LastDone)),
+			"prev_close": fmt.Sprintf("%.3f", decFloat(q.PrevClose)),
+			"open":       fmt.Sprintf("%.3f", decFloat(q.Open)),
+			"high":       fmt.Sprintf("%.3f", decFloat(q.High)),
+			"low":        fmt.Sprintf("%.3f", decFloat(q.Low)),
 			"volume":     fmt.Sprintf("%d", q.Volume),
-			"turnover":   fmt.Sprintf("%.3f", q.Turnover),
+			"turnover":   fmt.Sprintf("%.3f", decFloat(q.Turnover)),
 			"status":     status,
 		}
 	}
@@ -191,7 +191,7 @@ func outputDepthTable(depth *quote.SecurityDepth) error {
 	// Reverse iterate asks to show highest price first
 	for i := len(depth.Ask) - 1; i >= 0; i-- {
 		ask := depth.Ask[i]
-		fmt.Fprintf(w, "%.3f\t\t%d\t\t%d\n", ask.Price, ask.Volume, ask.OrderNum)
+		fmt.Fprintf(w, "%.3f\t\t%d\t\t%d\n", decFloat(ask.Price), ask.Volume, ask.OrderNum)
 	}
 
 	fmt.Fprintln(w, "\nBids (Buy Orders):")
@@ -199,7 +199,7 @@ func outputDepthTable(depth *quote.SecurityDepth) error {
 	fmt.Fprintln(w, "-----\t\t------\t\t------")
 
 	for _, bid := range depth.Bid {
-		fmt.Fprintf(w, "%.3f\t\t%d\t\t%d\n", bid.Price, bid.Volume, bid.OrderNum)
+		fmt.Fprintf(w, "%.3f\t\t%d\t\t%d\n", decFloat(bid.Price), bid.Volume, bid.OrderNum)
 	}
 
 	return w.Flush()
@@ -290,7 +290,7 @@ func outputKlinesTable(candles []*quote.Candlestick, symbol, period string) erro
 	for _, c := range candles {
 		date := time.Unix(c.Timestamp, 0).Format("2006-01-02 15:04")
 		fmt.Fprintf(w, "%s\t\t%.3f\t\t%.3f\t\t%.3f\t\t%.3f\t\t%d\t\t%.0f\n",
-			date, c.Open, c.High, c.Low, c.Close, c.Volume, c.Turnover)
+			date, decFloat(c.Open), decFloat(c.High), decFloat(c.Low), decFloat(c.Close), c.Volume, decFloat(c.Turnover))
 	}
 
 	return w.Flush()
@@ -348,8 +348,17 @@ func outputIntradayTable(lines []*quote.IntradayLine, symbol string) error {
 	for _, line := range lines {
 		timeStr := time.Unix(line.Timestamp, 0).Format("15:04")
 		fmt.Fprintf(w, "%s\t\t%.3f\t\t%d\t\t%.0f\t\t%.3f\n",
-			timeStr, line.Price, line.Volume, line.Turnover, line.AvgPrice)
+			timeStr, decFloat(line.Price), line.Volume, decFloat(line.Turnover), decFloat(line.AvgPrice))
 	}
 
 	return w.Flush()
+}
+
+// decFloat safely converts a *decimal.Decimal to float64.
+func decFloat(d *decimal.Decimal) float64 {
+	if d == nil {
+		return 0
+	}
+	f, _ := d.Float64()
+	return f
 }

@@ -143,7 +143,7 @@ func outputPositionsTable(positions []*trade.StockPositionChannel) error {
 				pos.Symbol,
 				pos.Quantity,
 				pos.AvailableQuantity,
-				pos.CostPrice,
+				decFloat(pos.CostPrice),
 				pos.Currency,
 				pos.Market,
 			)
@@ -211,7 +211,12 @@ func outputOrdersTable(orders []*trade.Order) error {
 	for _, order := range orders {
 		price := "MARKET"
 		if order.Price != nil {
-			price = fmt.Sprintf("%.3f", *order.Price)
+			price = fmt.Sprintf("%.3f", decFloat(order.Price))
+		}
+
+		qty := int64(0)
+		if order.Quantity != nil {
+			qty = *order.Quantity
 		}
 
 		fmt.Fprintf(w, "%s\t\t%s\t\t%s\t\t%s\t\t%d\t\t%s\t\t%s\n",
@@ -219,7 +224,7 @@ func outputOrdersTable(orders []*trade.Order) error {
 			order.Symbol,
 			order.Side,
 			order.OrderType,
-			order.Quantity,
+			qty,
 			price,
 			order.Status,
 		)

@@ -15,6 +15,7 @@ Longbridge FS 是一个基于文件系统的股票交易框架，通过读写文
 
 - **文件驱动** — 通过文件读写完成所有交易操作，AI Agent 无需学习 API
 - **AI 友好** — JSON 输出，天然适配 AI Agent 的文件操作能力
+- **专业 CLI** — 使用 Cobra 框架构建，提供现代化的命令行体验（参考 [longbridge-terminal](https://github.com/longbridge/longbridge-terminal) 官方实践）
 - **实时行情** — 支持 WebSocket 订阅，高效获取实时行情推送
 - **审计追踪** — 所有交易记录在 beancount 格式的 append-only 账本中
 - **盈亏追踪** — 自动生成 `pnl.json` 和 `portfolio.json`，实时追踪持仓盈亏
@@ -107,18 +108,62 @@ make run
 ### CLI 参数
 
 ```
-Usage: longbridge-fs <command> [options]
+Usage: longbridge-fs [command] [flags]
 
 Commands:
   init         初始化 FS 目录结构
   controller   启动交易控制器守护进程
+  help         获取任何命令的帮助
+  completion   生成 shell 自动补全脚本
 
-Options for controller:
+Global Flags:
+  -v, --verbose         启用详细输出
+  --version            显示版本信息
+
+查看子命令帮助:
+  longbridge-fs [command] --help
+```
+
+#### init 命令
+
+```
+初始化 FS 目录结构，创建必要的目录和默认配置文件
+
+Flags:
+  --root PATH           FS 根目录 (default: .)
+  -h, --help            显示帮助信息
+```
+
+#### controller 命令
+
+```
+启动交易控制器守护进程
+
+功能:
+  - 处理 beancount.txt 中的新订单
+  - 刷新账户状态和持仓
+  - 通过 WebSocket 更新实时行情
+  - 生成 PnL 和组合报告
+  - 执行风控规则（止损/止盈）
+  - 压缩历史账本到区块文件
+
+Flags:
   --root PATH           FS 根目录 (default: .)
   --interval DURATION   轮询间隔 (default: 2s)
   --credential FILE     凭证文件路径 (default: credential)
   --mock                Mock 模式，不调用 API (default: false)
   --compact-after N     每 N 笔执行后压缩归档, 0=禁用 (default: 10)
+  -h, --help            显示帮助信息
+
+示例:
+  # 真实 API 模式
+  longbridge-fs controller --root ./fs --credential ./configs/credential
+
+  # Mock 模式（无需 API）
+  longbridge-fs controller --root ./fs --mock
+
+  # 自定义轮询间隔
+  longbridge-fs controller --root ./fs --interval 5s --verbose
 ```
 
 ## 使用示例

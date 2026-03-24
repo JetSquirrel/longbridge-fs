@@ -40,20 +40,46 @@ func main() {
 
 	rootCmd := &cobra.Command{
 		Use:   "longbridge-fs",
-		Short: "AI-driven file system interface for HK/US stock trading",
-		Long: `Longbridge FS - File system-based stock trading framework
+		Short: "AI-native CLI for Longbridge trading platform",
+		Long: `Longbridge Terminal - AI-native CLI for the Longbridge trading platform
 
-Turn stock trading into file operations, making it naturally compatible
-with AI agents' file manipulation capabilities.`,
+Real-time market data, portfolio management, and trading operations.
+Covers every Longbridge OpenAPI endpoint for HK/US/CN markets.
+
+Designed for scripting, AI-agent tool-calling, and daily trading workflows.`,
 		Version: fmt.Sprintf("%s (built %s)", Version, BuildTime),
 	}
 
 	// Global flags
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
+	rootCmd.PersistentFlags().StringVar(&outputFormat, "format", "table", "Output format (table, json, csv)")
+	rootCmd.PersistentFlags().StringVar(&credentialFile, "credential", "credential", "Credential file path")
 
 	// Add subcommands
+
+	// Legacy file-system based commands
 	rootCmd.AddCommand(initCmd())
 	rootCmd.AddCommand(controllerCmd())
+
+	// New AI-native CLI commands
+
+	// Authentication
+	rootCmd.AddCommand(loginCmd())
+	rootCmd.AddCommand(logoutCmd())
+	rootCmd.AddCommand(checkCmd())
+
+	// Market data
+	rootCmd.AddCommand(quoteCmd())
+	rootCmd.AddCommand(staticCmd())
+	rootCmd.AddCommand(depthCmd())
+	rootCmd.AddCommand(klinesCmd())
+	rootCmd.AddCommand(intradayCmd())
+
+	// Account & portfolio
+	rootCmd.AddCommand(accountCmd())
+
+	// Trading
+	rootCmd.AddCommand(orderCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

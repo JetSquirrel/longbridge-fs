@@ -353,12 +353,3 @@ func outputIntradayTable(lines []*quote.IntradayLine, symbol string) error {
 
 	return w.Flush()
 }
-
-// decFloat safely converts a *decimal.Decimal to float64.
-func decFloat(d *decimal.Decimal) float64 {
-	if d == nil {
-		return 0
-	}
-	f, _ := d.Float64()
-	return f
-}

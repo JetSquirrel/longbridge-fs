@@ -214,12 +214,9 @@ func outputOrdersTable(orders []*trade.Order) error {
 			price = fmt.Sprintf("%.3f", decFloat(order.Price))
 		}
 
-		qty := int64(0)
-		if order.Quantity != nil {
-			qty = *order.Quantity
-		}
+		qty := order.Quantity
 
-		fmt.Fprintf(w, "%s\t\t%s\t\t%s\t\t%s\t\t%d\t\t%s\t\t%s\n",
+		fmt.Fprintf(w, "%s\t\t%s\t\t%s\t\t%s\t\t%s\t\t%s\t\t%s\n",
 			order.OrderId,
 			order.Symbol,
 			order.Side,

@@ -139,7 +139,7 @@ func outputPositionsTable(positions []*trade.StockPositionChannel) error {
 
 	for _, channel := range positions {
 		for _, pos := range channel.Positions {
-			fmt.Fprintf(w, "%s\t\t%d\t\t%d\t\t%.3f\t\t%s\t\t%s\n",
+			fmt.Fprintf(w, "%s\t\t%s\t\t%s\t\t%.3f\t\t%s\t\t%s\n",
 				pos.Symbol,
 				pos.Quantity,
 				pos.AvailableQuantity,
@@ -229,7 +229,6 @@ func outputOrdersTable(orders []*trade.Order) error {
 
 	return w.Flush()
 }
-
 
 // decFloat safely converts a *decimal.Decimal to float64.
 func decFloat(d *decimal.Decimal) float64 {

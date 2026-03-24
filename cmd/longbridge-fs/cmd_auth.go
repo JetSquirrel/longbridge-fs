@@ -52,7 +52,7 @@ api_key=YOUR_APP_KEY
 secret=YOUR_APP_SECRET
 access_token=YOUR_ACCESS_TOKEN
 
-You can obtain these credentials from the Longbridge Developer Portal.`, credentialFile)
+You can obtain these credentials from the Longbridge Developer Portal.`, err, credentialFile)
 	}
 
 	// Test the credentials by creating a context
@@ -141,7 +141,7 @@ Examples:
 }
 
 func runCheck() error {
-	fmt.Println("Checking Longbridge API connectivity...\n")
+	fmt.Println("Checking Longbridge API connectivity...")
 
 	// 1. Check credential file
 	fmt.Printf("Credential file: %s\n", credentialFile)

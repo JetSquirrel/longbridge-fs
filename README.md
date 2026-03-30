@@ -9,6 +9,7 @@
 - **双模式**：真实 API 与 Mock 之间一键切换，便于联调和回归。
 - **可审计**：所有交易事件都写入 Beancount 账本，可追溯、可归档。
 - **兼容 CLI**：保留 CLI 子命令用于旧脚本；推荐优先使用文件系统工作流。
+- **Content API**：支持查询讨论话题、新闻资讯、公司文件等内容数据（OpenAPI v0.22.0 新增功能）。
 
 ## 快速开始（FS 工作流）
 
@@ -92,6 +93,32 @@ fs/
 | `-v, --verbose` | 输出详细日志 | `false` |
 
 完整说明见 [docs/api-reference.md](docs/api-reference.md)。
+
+## CLI 子命令（可选）
+
+除文件系统工作流外，longbridge-fs 还提供了丰富的 CLI 子命令用于直接调用 API：
+
+```bash
+# 行情数据
+./build/longbridge-fs quote AAPL.US TSLA.US          # 实时报价
+./build/longbridge-fs klines AAPL.US --period day --count 30  # K线数据
+./build/longbridge-fs filings AAPL.US                # 公司文件
+
+# 内容数据（新增）
+./build/longbridge-fs content topics AAPL.US         # 讨论话题
+./build/longbridge-fs content news AAPL.US           # 新闻资讯
+
+# 账户与交易
+./build/longbridge-fs account balance                # 账户余额
+./build/longbridge-fs account positions              # 持仓信息
+./build/longbridge-fs order submit AAPL.US BUY 100 --type LIMIT --price 180.50
+
+# 身份验证
+./build/longbridge-fs login                          # 验证凭据
+./build/longbridge-fs check                          # 检查 API 连接
+```
+
+完整命令列表：`./build/longbridge-fs --help`
 
 ## 文档
 

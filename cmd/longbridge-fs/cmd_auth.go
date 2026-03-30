@@ -9,9 +9,10 @@ import (
 
 	"longbridge-fs/internal/credential"
 
-	"github.com/longportapp/openapi-go/config"
-	"github.com/longportapp/openapi-go/quote"
-	"github.com/longportapp/openapi-go/trade"
+	"github.com/longbridge/openapi-go/config"
+	"github.com/longbridge/openapi-go/content"
+	"github.com/longbridge/openapi-go/quote"
+	"github.com/longbridge/openapi-go/trade"
 	"github.com/spf13/cobra"
 )
 
@@ -239,6 +240,20 @@ func createTradeContext() (*trade.TradeContext, error) {
 	}
 
 	return tc, nil
+}
+
+func createContentContext() (*content.ContentContext, error) {
+	cfg, err := credential.Load(credentialFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load credentials: %w", err)
+	}
+
+	cc, err := content.NewFromCfg(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create content context: %w", err)
+	}
+
+	return cc, nil
 }
 
 func createConfigFromCredentials(credPath string) (*config.Config, error) {

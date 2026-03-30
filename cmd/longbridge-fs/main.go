@@ -17,8 +17,8 @@ import (
 	"longbridge-fs/internal/market"
 	"longbridge-fs/internal/risk"
 
-	"github.com/longportapp/openapi-go/quote"
-	"github.com/longportapp/openapi-go/trade"
+	"github.com/longbridge/openapi-go/quote"
+	"github.com/longbridge/openapi-go/trade"
 	"github.com/spf13/cobra"
 )
 
@@ -74,6 +74,10 @@ Designed for scripting, AI-agent tool-calling, and daily trading workflows.`,
 	rootCmd.AddCommand(depthCmd())
 	rootCmd.AddCommand(klinesCmd())
 	rootCmd.AddCommand(intradayCmd())
+	rootCmd.AddCommand(filingsCmd())
+
+	// Content
+	rootCmd.AddCommand(contentCmd())
 
 	// Account & portfolio
 	rootCmd.AddCommand(accountCmd())

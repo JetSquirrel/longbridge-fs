@@ -13,7 +13,7 @@ import (
 
 	"longbridge-fs/internal/model"
 
-	"github.com/longportapp/openapi-go/quote"
+	"github.com/longbridge/openapi-go/quote"
 	"github.com/shopspring/decimal"
 )
 

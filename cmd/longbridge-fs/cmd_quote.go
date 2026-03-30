@@ -9,7 +9,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/longportapp/openapi-go/quote"
+	"github.com/longbridge/openapi-go/quote"
 	"github.com/spf13/cobra"
 )
 
@@ -352,4 +352,73 @@ func outputIntradayTable(lines []*quote.IntradayLine, symbol string) error {
 	}
 
 	return w.Flush()
+}
+
+func filingsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "filings [symbol]",
+		Short: "Get filing documents for a symbol",
+		Long: `Get filing documents for a security symbol.
+
+Examples:
+  longbridge-fs filings AAPL.US
+  longbridge-fs filings 700.HK --format json`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runFilings(args[0])
+		},
+	}
+
+	return cmd
+}
+
+func runFilings(symbol string) error {
+	ctx := context.Background()
+
+	// Load credentials and create quote context
+	qc, err := createQuoteContext()
+	if err != nil {
+		return fmt.Errorf("failed to initialize quote context: %w", err)
+	}
+
+	// Fetch filings
+	filings, err := qc.Filings(ctx, symbol)
+	if err != nil {
+		return fmt.Errorf("failed to fetch filings: %w", err)
+	}
+
+	// Output based on format
+	switch outputFormat {
+	case "json":
+		return outputJSON(filings)
+	default:
+		return outputFilingsTable(filings)
+	}
+}
+
+func outputFilingsTable(filings []*quote.FilingItem) error {
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+
+	// Print header
+	fmt.Fprintln(w, "| ID\t| Title\t| File Name\t| Published At\t|")
+	fmt.Fprintln(w, "|----\t|-------\t|----------\t|-------------\t|")
+
+	for _, f := range filings {
+		fmt.Fprintf(w, "| %s\t| %s\t| %s\t| %s\t|\n",
+			truncateString(f.Id, 12),
+			truncateString(f.Title, 40),
+			truncateString(f.FileName, 30),
+			f.PublishAt.Format("2006-01-02 15:04"),
+		)
+	}
+
+	return w.Flush()
+}
+
+// truncateString truncates a string to maxLen characters
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
 }

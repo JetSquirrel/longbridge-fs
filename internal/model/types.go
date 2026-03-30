@@ -43,14 +43,18 @@ type Entry struct {
 
 // ParsedOrder is a trade order extracted from a beancount ORDER entry
 type ParsedOrder struct {
-	IntentID  string
-	Side      string
-	Symbol    string
-	Qty       string
-	OrderType string
-	TIF       string
-	Price     string // for LIMIT orders
-	Market    string // default: US
+	IntentID    string
+	Side        string
+	Symbol      string
+	Qty         string
+	OrderType   string
+	TIF         string
+	Price       string // for LIMIT orders
+	Market      string // default: US
+	// Phase 1: Extended traceability fields
+	Source      string   // manual, rebalance, risk_trigger
+	RebalanceID string   // links to portfolio rebalance
+	SignalRefs  []string // triggering signals (comma-separated in beancount)
 }
 
 // --- Quote JSON types ---
@@ -140,11 +144,108 @@ type PortfolioItem struct {
 
 // --- Risk Control types ---
 
-// RiskRule defines stop-loss/take-profit for a symbol
+// RiskRule defines stop-loss/take-profit for a symbol (legacy, L5 reactive)
 type RiskRule struct {
 	StopLoss   float64 `json:"stop_loss,omitempty"`
 	TakeProfit float64 `json:"take_profit,omitempty"`
 	Side       string  `json:"side,omitempty"` // default: SELL (close position)
 	Qty        string  `json:"qty,omitempty"`  // default: all available
+}
+
+// --- Phase 1: L4 Risk Gate types ---
+
+// RiskPolicy is the main risk control policy configuration
+type RiskPolicy struct {
+	Version              int               `json:"version"`
+	Enabled              bool              `json:"enabled"`
+	Mode                 string            `json:"mode"` // ENFORCE, WARN, DISABLED
+	PreTradeChecks       bool              `json:"pre_trade_checks"`
+	PostTradeMonitoring  bool              `json:"post_trade_monitoring"`
+	DailyLossLimit       DailyLossLimit    `json:"daily_loss_limit"`
+	OrderFrequency       OrderFrequency    `json:"order_frequency"`
+}
+
+type DailyLossLimit struct {
+	Enabled    bool    `json:"enabled"`
+	MaxLossPct float64 `json:"max_loss_pct"`
+	Action     string  `json:"action"` // HALT, WARN
+}
+
+type OrderFrequency struct {
+	Enabled           bool `json:"enabled"`
+	MaxOrdersPerHour  int  `json:"max_orders_per_hour"`
+	MaxOrdersPerDay   int  `json:"max_orders_per_day"`
+}
+
+// PreTradeRules defines pre-trade validation rules
+type PreTradeRules struct {
+	MaxSingleOrderPct           float64  `json:"max_single_order_pct"`
+	MaxSingleOrderValue         float64  `json:"max_single_order_value"`
+	AllowedSymbols              []string `json:"allowed_symbols"`
+	BlockedSymbols              []string `json:"blocked_symbols"`
+	AllowedSides                []string `json:"allowed_sides"`
+	RequireLimitPrice           bool     `json:"require_limit_price"`
+	MaxDeviationFromMarketPct   float64  `json:"max_deviation_from_market_pct"`
+}
+
+// PositionLimits defines position size constraints
+type PositionLimits struct {
+	MaxPositionPct    float64                    `json:"max_position_pct"`
+	MaxPositionsCount int                        `json:"max_positions_count"`
+	SectorLimits      map[string]float64         `json:"sector_limits"`
+	PerSymbolLimits   map[string]SymbolLimit     `json:"per_symbol_limits"`
+}
+
+type SymbolLimit struct {
+	MaxPct float64 `json:"max_pct"`
+}
+
+// DailyLimits tracks daily risk metrics
+type DailyLimits struct {
+	Date            string  `json:"date"`
+	StartingEquity  float64 `json:"starting_equity"`
+	CurrentEquity   float64 `json:"current_equity"`
+	RealizedPnL     float64 `json:"realized_pnl"`
+	UnrealizedPnL   float64 `json:"unrealized_pnl"`
+	TotalPnLPct     float64 `json:"total_pnl_pct"`
+	OrdersThisHour  int     `json:"orders_this_hour"`
+	OrdersToday     int     `json:"orders_today"`
+	IsHalted        bool    `json:"is_halted"`
+	HaltReason      *string `json:"halt_reason"`
+}
+
+// RiskStatus tracks real-time risk control status
+type RiskStatus struct {
+	UpdatedAt      string  `json:"updated_at"`
+	ChecksToday    int     `json:"checks_today"`
+	ChecksPassed   int     `json:"checks_passed"`
+	ChecksRejected int     `json:"checks_rejected"`
+	IsHalted       bool    `json:"is_halted"`
+	HaltReason     *string `json:"halt_reason"`
+}
+
+// RiskViolation records a pre-trade check violation
+type RiskViolation struct {
+	Timestamp string `json:"timestamp"`
+	Rule      string `json:"rule"`
+	IntentID  string `json:"intent_id"`
+	Detail    string `json:"detail"`
+	Action    string `json:"action"` // REJECTED, HALTED
+}
+
+// RiskCheckResult is the result of a pre-trade check
+type RiskCheckResult struct {
+	Passed   bool
+	Rule     string // which rule failed (if any)
+	Reason   string // human-readable explanation
+}
+
+// --- Phase 1: Extended Order Metadata ---
+
+// OrderMetadata extends ParsedOrder with Phase 1 traceability fields
+type OrderMetadata struct {
+	Source      string   `json:"source,omitempty"`       // manual, rebalance, risk_trigger
+	RebalanceID string   `json:"rebalance_id,omitempty"` // links to portfolio rebalance
+	SignalRefs  []string `json:"signal_refs,omitempty"`  // triggering signals
 }
 

@@ -116,6 +116,7 @@ for the file system-based trading framework.`,
 
 func runInit(root string) error {
 	dirs := []string{
+		// Existing directories
 		filepath.Join(root, "account"),
 		filepath.Join(root, "trade", "blocks"),
 		filepath.Join(root, "quote", "hold"),
@@ -123,6 +124,20 @@ func runInit(root string) error {
 		filepath.Join(root, "quote", "subscribe"),
 		filepath.Join(root, "quote", "unsubscribe"),
 		filepath.Join(root, "quote", "market"),
+		// Phase 1: L1 Research Layer
+		filepath.Join(root, "research", "feeds", "news"),
+		filepath.Join(root, "research", "feeds", "topics"),
+		filepath.Join(root, "research", "feeds", "custom"),
+		// Phase 1: L2 Signal Layer
+		filepath.Join(root, "signal", "definitions"),
+		filepath.Join(root, "signal", "output"),
+		// Phase 1: L3 Portfolio Layer
+		filepath.Join(root, "portfolio", "rebalance"),
+		filepath.Join(root, "portfolio", "history"),
+		// Phase 1: L4 Risk Control Layer (new structure)
+		filepath.Join(root, "trade", "risk"),
+		// Phase 1: Audit Layer
+		filepath.Join(root, "audit"),
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0755); err != nil {
@@ -155,7 +170,7 @@ func runInit(root string) error {
 		}
 	}
 
-	// Default risk control config
+	// Default risk control config (legacy, kept for backward compatibility)
 	rcPath := filepath.Join(root, "trade", "risk_control.json")
 	if _, err := os.Stat(rcPath); os.IsNotExist(err) {
 		if err := os.WriteFile(rcPath, []byte("{}\n"), 0644); err != nil {
@@ -166,7 +181,188 @@ func runInit(root string) error {
 		}
 	}
 
+	// Phase 1: L1 Research watchlist
+	watchlistPath := filepath.Join(root, "research", "watchlist.json")
+	if _, err := os.Stat(watchlistPath); os.IsNotExist(err) {
+		watchlistDefault := `{
+  "symbols": [],
+  "refresh_interval": "5m",
+  "feeds": ["news", "topics"]
+}
+`
+		if err := os.WriteFile(watchlistPath, []byte(watchlistDefault), 0644); err != nil {
+			return fmt.Errorf("failed to create watchlist: %w", err)
+		}
+		if verbose {
+			log.Printf("created file: %s", watchlistPath)
+		}
+	}
+
+	// Phase 1: L1 Research summary
+	summaryPath := filepath.Join(root, "research", "summary.json")
+	if _, err := os.Stat(summaryPath); os.IsNotExist(err) {
+		summaryDefault := `{
+  "updated_at": "",
+  "symbols": {}
+}
+`
+		if err := os.WriteFile(summaryPath, []byte(summaryDefault), 0644); err != nil {
+			return fmt.Errorf("failed to create research summary: %w", err)
+		}
+		if verbose {
+			log.Printf("created file: %s", summaryPath)
+		}
+	}
+
+	// Phase 1: L2 Signal active signals
+	activeSignalsPath := filepath.Join(root, "signal", "active.json")
+	if _, err := os.Stat(activeSignalsPath); os.IsNotExist(err) {
+		activeDefault := `{
+  "updated_at": "",
+  "signals": []
+}
+`
+		if err := os.WriteFile(activeSignalsPath, []byte(activeDefault), 0644); err != nil {
+			return fmt.Errorf("failed to create active signals: %w", err)
+		}
+		if verbose {
+			log.Printf("created file: %s", activeSignalsPath)
+		}
+	}
+
+	// Phase 1: L3 Portfolio current
+	currentPortfolioPath := filepath.Join(root, "portfolio", "current.json")
+	if _, err := os.Stat(currentPortfolioPath); os.IsNotExist(err) {
+		currentDefault := `{
+  "updated_at": "",
+  "total_equity": 0.0,
+  "positions": {},
+  "cash": 0.0,
+  "cash_pct": 0.0
+}
+`
+		if err := os.WriteFile(currentPortfolioPath, []byte(currentDefault), 0644); err != nil {
+			return fmt.Errorf("failed to create current portfolio: %w", err)
+		}
+		if verbose {
+			log.Printf("created file: %s", currentPortfolioPath)
+		}
+	}
+
+	// Phase 1: L4 Risk policy
+	policyPath := filepath.Join(root, "trade", "risk", "policy.json")
+	if _, err := os.Stat(policyPath); os.IsNotExist(err) {
+		policyDefault := `{
+  "version": 1,
+  "enabled": false,
+  "mode": "ENFORCE",
+  "pre_trade_checks": true,
+  "post_trade_monitoring": true,
+  "daily_loss_limit": {
+    "enabled": false,
+    "max_loss_pct": 0.03,
+    "action": "HALT"
+  },
+  "order_frequency": {
+    "enabled": false,
+    "max_orders_per_hour": 20,
+    "max_orders_per_day": 100
+  }
+}
+`
+		if err := os.WriteFile(policyPath, []byte(policyDefault), 0644); err != nil {
+			return fmt.Errorf("failed to create risk policy: %w", err)
+		}
+		if verbose {
+			log.Printf("created file: %s", policyPath)
+		}
+	}
+
+	// Phase 1: L4 Pre-trade rules
+	preTradeRulesPath := filepath.Join(root, "trade", "risk", "pre_trade.json")
+	if _, err := os.Stat(preTradeRulesPath); os.IsNotExist(err) {
+		preTradeDefault := `{
+  "max_single_order_pct": 0.10,
+  "max_single_order_value": 50000,
+  "allowed_symbols": [],
+  "blocked_symbols": [],
+  "allowed_sides": ["BUY", "SELL"],
+  "require_limit_price": false,
+  "max_deviation_from_market_pct": 0.05
+}
+`
+		if err := os.WriteFile(preTradeRulesPath, []byte(preTradeDefault), 0644); err != nil {
+			return fmt.Errorf("failed to create pre-trade rules: %w", err)
+		}
+		if verbose {
+			log.Printf("created file: %s", preTradeRulesPath)
+		}
+	}
+
+	// Phase 1: L4 Position limits
+	positionLimitsPath := filepath.Join(root, "trade", "risk", "position_limits.json")
+	if _, err := os.Stat(positionLimitsPath); os.IsNotExist(err) {
+		positionLimitsDefault := `{
+  "max_position_pct": 0.25,
+  "max_positions_count": 15,
+  "sector_limits": {},
+  "per_symbol_limits": {}
+}
+`
+		if err := os.WriteFile(positionLimitsPath, []byte(positionLimitsDefault), 0644); err != nil {
+			return fmt.Errorf("failed to create position limits: %w", err)
+		}
+		if verbose {
+			log.Printf("created file: %s", positionLimitsPath)
+		}
+	}
+
+	// Phase 1: L4 Daily limits
+	dailyLimitsPath := filepath.Join(root, "trade", "risk", "daily_limits.json")
+	if _, err := os.Stat(dailyLimitsPath); os.IsNotExist(err) {
+		dailyLimitsDefault := `{
+  "date": "",
+  "starting_equity": 0.0,
+  "current_equity": 0.0,
+  "realized_pnl": 0.0,
+  "unrealized_pnl": 0.0,
+  "total_pnl_pct": 0.0,
+  "orders_this_hour": 0,
+  "orders_today": 0,
+  "is_halted": false,
+  "halt_reason": null
+}
+`
+		if err := os.WriteFile(dailyLimitsPath, []byte(dailyLimitsDefault), 0644); err != nil {
+			return fmt.Errorf("failed to create daily limits: %w", err)
+		}
+		if verbose {
+			log.Printf("created file: %s", dailyLimitsPath)
+		}
+	}
+
+	// Phase 1: L4 Risk status
+	statusPath := filepath.Join(root, "trade", "risk", "status.json")
+	if _, err := os.Stat(statusPath); os.IsNotExist(err) {
+		statusDefault := `{
+  "updated_at": "",
+  "checks_today": 0,
+  "checks_passed": 0,
+  "checks_rejected": 0,
+  "is_halted": false,
+  "halt_reason": null
+}
+`
+		if err := os.WriteFile(statusPath, []byte(statusDefault), 0644); err != nil {
+			return fmt.Errorf("failed to create risk status: %w", err)
+		}
+		if verbose {
+			log.Printf("created file: %s", statusPath)
+		}
+	}
+
 	log.Printf("✓ Successfully initialized FS at %s", root)
+	log.Printf("✓ Phase 1: Five-layer harness directories created")
 	return nil
 }
 

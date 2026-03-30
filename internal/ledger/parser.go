@@ -76,7 +76,20 @@ func OrderFromEntry(e model.Entry) model.ParsedOrder {
 		TIF:       strings.ToUpper(e.Meta["tif"]),
 		Price:     e.Meta["price"],
 		Market:    e.Meta["market"],
+		// Phase 1: Extended metadata fields
+		Source:      e.Meta["source"],
+		RebalanceID: e.Meta["rebalance_id"],
 	}
+
+	// Parse signal_refs (comma-separated)
+	if signalRefs := e.Meta["signal_refs"]; signalRefs != "" {
+		refs := strings.Split(signalRefs, ",")
+		for i, ref := range refs {
+			refs[i] = strings.TrimSpace(ref)
+		}
+		o.SignalRefs = refs
+	}
+
 	if o.Market == "" {
 		o.Market = "US"
 	}

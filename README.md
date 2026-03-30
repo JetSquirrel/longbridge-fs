@@ -128,6 +128,9 @@ fs/
 - [风控配置](docs/risk-control.md)
 - [AI Agent 使用指南](docs/ai-agent-guide.md)
 - [架构设计](docs/architecture.md)
+- **[Phase 1: 五层架构实现](docs/phase1-implementation.md)** ⭐ NEW
+- [五层架构完整规范](docs/five-layer-spec.md)
+- [五层架构任务分解](docs/five-layer-task.md)
 - [更多条目索引](docs/README.md)
 
 ## 开发

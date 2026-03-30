@@ -269,3 +269,12 @@ func createConfigFromCredentials(credPath string) (*config.Config, error) {
 
 	return cfg, nil
 }
+
+func createHTTPClient() (*config.Config, error) {
+	cfg, err := credential.Load(credentialFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load credentials: %w", err)
+	}
+
+	return cfg, nil
+}

@@ -79,6 +79,9 @@ Designed for scripting, AI-agent tool-calling, and daily trading workflows.`,
 	// Content
 	rootCmd.AddCommand(contentCmd())
 
+	// Socket Feed
+	rootCmd.AddCommand(socketCmd())
+
 	// Account & portfolio
 	rootCmd.AddCommand(accountCmd())
 

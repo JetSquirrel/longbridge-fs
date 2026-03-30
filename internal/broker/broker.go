@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -12,6 +13,7 @@ import (
 
 	"longbridge-fs/internal/ledger"
 	"longbridge-fs/internal/model"
+	"longbridge-fs/internal/riskgate"
 
 	"github.com/longbridge/openapi-go/trade"
 	"github.com/shopspring/decimal"
@@ -28,6 +30,23 @@ func ProcessLedger(ctx context.Context, tc *trade.TradeContext, root string, use
 
 	processed, orders := ledger.BuildLedgerState(entries)
 	executed := 0
+
+	// Phase 1: Initialize risk gate
+	gate, err := riskgate.NewGate(root)
+	if err != nil {
+		log.Printf("WARNING: failed to initialize risk gate: %v", err)
+		// Continue without risk gate if it fails to load
+		gate = nil
+	}
+
+	// Load account state for risk checks
+	var accountState *model.AccountState
+	if gate != nil && gate.IsEnabled() {
+		accountState, err = loadAccountState(root)
+		if err != nil {
+			log.Printf("WARNING: failed to load account state for risk checks: %v", err)
+		}
+	}
 
 	for _, oe := range orders {
 		o := ledger.OrderFromEntry(oe)
@@ -57,6 +76,37 @@ func ProcessLedger(ctx context.Context, tc *trade.TradeContext, root string, use
 			continue
 		}
 
+		// Phase 1: Pre-trade risk check
+		if gate != nil && gate.IsEnabled() && accountState != nil {
+			result := gate.CheckOrder(&o, accountState)
+			gate.UpdateStatus(result.Passed)
+
+			if !result.Passed {
+				// Record violation
+				if err := gate.RecordViolation(&o, result); err != nil {
+					log.Printf("WARNING: failed to record violation: %v", err)
+				}
+
+				// Reject order based on mode
+				if !gate.ShouldWarnOnly() {
+					sym := ledger.FullSymbol(o.Symbol, o.Market)
+					reason := fmt.Sprintf("RISK_%s: %s", strings.ToUpper(result.Rule), result.Reason)
+					AppendRejection(bcPath, o.IntentID, sym, o.Side, o.Qty, reason)
+					log.Printf("order rejected by risk gate: intent=%s rule=%s", o.IntentID, result.Rule)
+					processed[o.IntentID] = true
+					executed++
+					continue
+				} else {
+					log.Printf("WARNING: order violates risk rule but allowed in WARN mode: intent=%s rule=%s", o.IntentID, result.Rule)
+				}
+			}
+
+			// Increment order count for frequency tracking
+			if err := gate.IncrementOrderCount(); err != nil {
+				log.Printf("WARNING: failed to increment order count: %v", err)
+			}
+		}
+
 		sym := ledger.FullSymbol(o.Symbol, o.Market)
 
 		if useMock {
@@ -79,6 +129,22 @@ func ProcessLedger(ctx context.Context, tc *trade.TradeContext, root string, use
 	}
 
 	return executed, nil
+}
+
+// loadAccountState loads the account state for risk checks
+func loadAccountState(root string) (*model.AccountState, error) {
+	statePath := filepath.Join(root, "account", "state.json")
+	data, err := os.ReadFile(statePath)
+	if err != nil {
+		return nil, err
+	}
+
+	var state model.AccountState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil, err
+	}
+
+	return &state, nil
 }
 
 // ExecuteOrder submits an order via the Longbridge SDK.

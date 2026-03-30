@@ -1,529 +1,113 @@
-# Longbridge Terminal
+# Longbridge FS
 
-> AI-native CLI for the Longbridge trading platform — real-time market data, portfolio, and trading
+> File-system native interface for Longbridge — AI/脚本通过读写文件完成行情、下单、风控与账户管理。
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8?logo=go)](go.mod)
+## 概览
 
-## Overview
+- **文件即接口**：追加 `ORDER`、创建触发文件、读取 JSON/文本即可驱动全流程。
+- **Controller 守护进程**：轮询 `fs/`，执行订单、刷新行情与账户、生成盈亏/组合、触发风控、归档账本。
+- **双模式**：真实 API 与 Mock 之间一键切换，便于联调和回归。
+- **可审计**：所有交易事件都写入 Beancount 账本，可追溯、可归档。
+- **兼容 CLI**：保留 CLI 子命令用于旧脚本；推荐优先使用文件系统工作流。
 
-**Longbridge Terminal** is an AI-native command-line interface for the Longbridge trading platform, designed for scripting, AI-agent tool-calling, and daily trading workflows from the terminal.
+## 快速开始（FS 工作流）
 
-Covers every Longbridge OpenAPI endpoint: real-time quotes, depth, K-lines, options, and warrants for market data; account balances, stock and fund positions for portfolio management; and order submission, modification, cancellation, and execution history for trading.
-
-### Key Features
-
-- **AI-Native CLI** — Direct command-line access to all Longbridge OpenAPI endpoints
-- **Dual Interface** — Both CLI commands and file-system based operations
-- **Real-time Market Data** — Quotes, depth, K-lines, intraday data with WebSocket support
-- **Portfolio Management** — Account balance, positions, order history
-- **Trading Operations** — Submit, cancel, and track orders
-- **Multiple Output Formats** — JSON, table, and CSV formats for easy integration
-- **Authentication** — OAuth 2.0 support via Longbridge SDK
-- **Mock Mode** — Test without real API calls
-- **Audit Trail** — All trades recorded in Beancount format
-- **Risk Control** — Automatic stop-loss/take-profit
-
-### Use Cases
-
-- AI agents performing automated trading
-- Daily trading workflows from the terminal
-- Portfolio monitoring and analysis
-- Building rule-based trading systems
-- Backtesting and simulation
-- Learning the Longbridge API
-
-## Quick Start
-
-### Installation
-
+1) 编译
 ```bash
-# Build from source
 make build
-# or
+# 或
 go build -o build/longbridge-fs ./cmd/longbridge-fs
 ```
 
-### Configuration
-
-Create a credential file at `configs/credential`:
-
+2) 准备凭据 `configs/credential`
 ```
 api_key=YOUR_APP_KEY
 secret=YOUR_APP_SECRET
 access_token=YOUR_ACCESS_TOKEN
 ```
 
-### Authentication
-
+3) 初始化文件系统
 ```bash
-# Verify credentials and API connectivity
-longbridge-fs check
-
-# Authenticate (currently verifies existing credentials)
-longbridge-fs login
-
-# Clear credentials
-longbridge-fs logout
+./build/longbridge-fs init --root ./fs
 ```
 
-## CLI Usage
-
-### Market Data Commands
-
-#### Real-time Quotes
-
+4) 启动 Controller
 ```bash
-# Get quotes for multiple symbols (table format)
-longbridge-fs quote TSLA.US NVDA.US
+# 真实 API
+./build/longbridge-fs controller --root ./fs --credential ./configs/credential
 
-# JSON output
-longbridge-fs quote AAPL.US --format json
-
-# Static table format (matches problem statement example)
-longbridge-fs static NVDA.US TSLA.US
+# Mock（不连 API，便于流程验证）
+./build/longbridge-fs controller --root ./fs --mock
 ```
 
-Example output:
+5) 目录一览
 ```
-| Symbol  | Last    | Prev Close | Open    | High    | Low     | Volume    | Turnover        | Status |
-|---------|---------|------------|---------|---------|---------|-----------|-----------------|--------|
-| TSLA.US | 395.560 | 391.200    | 396.220 | 403.730 | 394.420 | 58068343  | 23138752546.000 | Normal |
-| NVDA.US | 183.220 | 180.250    | 182.970 | 188.880 | 181.410 | 217307380 | 40023702698.000 | Normal |
-```
-
-#### Market Depth
-
-```bash
-# Get order book depth
-longbridge-fs depth AAPL.US
-
-# JSON format
-longbridge-fs depth 700.HK --format json
+fs/
+├── account/              # state.json, pnl.json
+├── trade/                # beancount.txt, blocks/, risk_control.json
+├── quote/                # track/, subscribe/, hold/, portfolio.json
+└── .kill                 # 触发安全退出
 ```
 
-#### K-Line Data
+## 文件系统操作速览
 
-```bash
-# Get daily K-lines (default: 30 bars)
-longbridge-fs klines AAPL.US
+- **提交订单**：向 `fs/trade/beancount.txt` 追加一条 `ORDER`
+  ```
+  2026-03-24 * "ORDER" "BUY AAPL.US 100"
+    ; intent_id: 20260324-001
+    ; side: BUY
+    ; symbol: AAPL.US
+    ; qty: 100
+    ; type: LIMIT
+    ; price: 180.50
+    ; tif: DAY
+  ```
+  Controller 执行后追加 `EXECUTION` 或 `REJECTION`，并在达到 `--compact-after` 阈值时归档到 `trade/blocks/`。
 
-# Get weekly K-lines
-longbridge-fs klines 700.HK --period week --count 52
+- **拉取行情（一次性）**：`touch fs/quote/track/TSLA.US`，轮询后数据写入 `fs/quote/hold/TSLA.US/`（overview、intraday、D/W/M/Y/5D）。
 
-# Other periods: day, week, month, year, 1m, 5m, 15m, 30m, 60m
-longbridge-fs klines TSLA.US --period 5m --count 100 --format json
-```
+- **订阅实时行情**：`touch fs/quote/subscribe/TSLA.US`，推送数据持续刷新 `hold/TSLA.US/overview.{json,txt}`；取消订阅 `touch fs/quote/unsubscribe/TSLA.US`。
 
-#### Intraday Data
+- **账户与组合**：`fs/account/state.json`（余额/持仓/当日订单，需真实 API），`fs/account/pnl.json`（基于 overview 计算），`fs/quote/portfolio.json`（行情+持仓聚合）。
 
-```bash
-# Get minute-by-minute intraday data
-longbridge-fs intraday AAPL.US
-
-# JSON output
-longbridge-fs intraday 9988.HK --format json
-```
-
-### Account & Portfolio Commands
-
-#### Account Balance
-
-```bash
-# Get account balance
-longbridge-fs account balance
-
-# JSON format
-longbridge-fs account balance --format json
-```
-
-Example output:
-```
-Currency        Total Cash      Available       Frozen          Settling        Withdrawable
---------        ----------      ---------       ------          --------        ------------
-USD             100000.00       95000.00        2000.00         3000.00         90000.00
-HKD             500000.00       480000.00       10000.00        10000.00        470000.00
-```
-
-#### Stock Positions
-
-```bash
-# Get current positions
-longbridge-fs account positions
-
-# JSON format
-longbridge-fs account positions --format json
-```
-
-Example output:
-```
-Symbol          Quantity        Available       Cost Price      Currency        Market
-------          --------        ---------       ----------      --------        ------
-AAPL.US         100             100             180.500         USD             US
-700.HK          1000            1000            320.000         HKD             HK
-```
-
-#### Order History
-
-```bash
-# Get today's orders
-longbridge-fs account orders
-
-# JSON format
-longbridge-fs account orders --format json
-```
-
-### Trading Commands
-
-#### Submit Orders
-
-```bash
-# Market order
-longbridge-fs order submit AAPL.US BUY 100
-
-# Limit order
-longbridge-fs order submit TSLA.US BUY 50 --type LIMIT --price 180.50
-
-# With time in force
-longbridge-fs order submit 700.HK SELL 1000 --type LIMIT --price 350.00 --tif GTC
-
-# JSON output
-longbridge-fs order submit NVDA.US BUY 25 --type LIMIT --price 183.00 --format json
-```
-
-Order parameters:
-- **Side**: BUY or SELL
-- **Type**: MARKET (default), LIMIT, ELO, ALO
-- **TIF** (Time In Force): DAY (default), GTC (Good Till Canceled), GTD (Good Till Date)
-
-#### Cancel Orders
-
-```bash
-# Cancel an order by ID
-longbridge-fs order cancel 1234567890
-
-# JSON output
-longbridge-fs order cancel 9876543210 --format json
-```
-
-### Global Flags
-
-All commands support these global flags:
-
-```bash
---format string       Output format: table (default), json, csv
---credential string   Credential file path (default: "credential")
---verbose, -v         Enable verbose output
-```
-
-## File-System Interface
-
-In addition to CLI commands, Longbridge Terminal supports a file-system based interface for AI agents and automated workflows.
-
-### Initialize File System
-
-```bash
-# Initialize directory structure
-longbridge-fs init --root ./fs
-
-# Start the controller daemon
-longbridge-fs controller --root ./fs --credential ./configs/credential
-
-# Or run in mock mode (no real API calls)
-longbridge-fs controller --root ./fs --mock
-```
-
-### File-Based Operations
-
-#### Submit Orders via Beancount
-
-Append orders to `fs/trade/beancount.txt`:
-
-```
-2026-03-24 * "ORDER" "BUY 9988.HK Alibaba"
-  ; intent_id: 20260324-001
-  ; side: BUY
-  ; symbol: 9988.HK
-  ; market: HK
-  ; qty: 1000
-  ; type: LIMIT
-  ; price: 161
-  ; tif: DAY
-```
-
-The controller automatically processes and appends execution results.
-
-#### Query Quotes via File Triggers
-
-```bash
-# WebSocket subscription (real-time updates)
-touch fs/quote/subscribe/AAPL.US
-# Data continuously updated in fs/quote/hold/AAPL.US/overview.json
-
-# One-shot fetch
-touch fs/quote/track/TSLA.US
-# Data written to fs/quote/hold/TSLA.US/ and track file removed
-```
-
-#### View Account & PnL
-
-```bash
-# Account state
-cat fs/account/state.json | jq
-
-# Position P&L
-cat fs/account/pnl.json | jq
-
-# Portfolio summary
-cat fs/quote/portfolio.json | jq
-```
-
-#### Risk Control
-
-Configure automatic stop-loss/take-profit in `fs/trade/risk_control.json`:
-
-```json
-{
-  "700.HK": {
-    "stop_loss": 280.0,
-    "take_profit": 350.0
-  },
-  "AAPL.US": {
-    "stop_loss": 150.0,
-    "take_profit": 210.0,
-    "qty": "10"
+- **风控**：在 `fs/trade/risk_control.json` 配置止损/止盈，例如：
+  ```json
+  {
+    "AAPL.US": { "stop_loss": 150, "take_profit": 210, "qty": "50" }
   }
-}
-```
+  ```
+  触发后自动写入卖出 `ORDER` 并移除规则。
 
-#### Kill Switch
+- **Kill Switch**：`touch fs/.kill`，下一轮轮询安全退出。
 
-```bash
-# Safely stop the controller
-touch fs/.kill
-```
+## Controller 主要参数
 
-## Architecture
+| 参数 | 作用 | 默认 |
+| --- | --- | --- |
+| `--root` | FS 根目录 | `.` |
+| `--credential` | Longbridge 凭据文件 | `credential` |
+| `--interval` | 轮询间隔 | `2s` |
+| `--mock` | 不连接 API，使用本地 Mock | `false` |
+| `--compact-after` | 执行订单数达到 N 后归档，0 关闭 | `10` |
+| `-v, --verbose` | 输出详细日志 | `false` |
 
-```
-longbridge-terminal/
-├── cmd/longbridge-fs/
-│   ├── main.go              # CLI entry point
-│   ├── cmd_auth.go          # Authentication commands
-│   ├── cmd_quote.go         # Market data commands
-│   ├── cmd_account.go       # Account/portfolio commands
-│   └── cmd_order.go         # Trading commands
-├── internal/
-│   ├── model/types.go       # Data structures
-│   ├── ledger/              # Beancount parsing & archival
-│   ├── credential/          # API credential loading
-│   ├── broker/              # Order execution (real/mock)
-│   ├── market/              # Quote fetching & WebSocket
-│   ├── account/             # Account state & P&L
-│   └── risk/                # Risk control engine
-├── configs/
-│   └── credential           # API credentials
-└── fs/                      # File-system interface (when using controller)
-    ├── account/             # Account state & P&L
-    ├── trade/               # Orders & risk control
-    └── quote/               # Market data
-```
+完整说明见 [docs/api-reference.md](docs/api-reference.md)。
 
-## Development
+## 文档
+
+- [文件系统结构](docs/filesystem.md)
+- [订单格式](docs/order-format.md)
+- [行情数据](docs/market-data.md)
+- [风控配置](docs/risk-control.md)
+- [AI Agent 使用指南](docs/ai-agent-guide.md)
+- [架构设计](docs/architecture.md)
+- [更多条目索引](docs/README.md)
+
+## 开发
 
 ```bash
-# Format code
-make fmt
-
-# Run linter
-make lint
-
-# Run tests
-make test
-
-# Clean build artifacts
-make clean
-
-# Download dependencies
-make deps
+make fmt     # 格式化
+make lint    # 静态检查
+make test    # 运行测试
+make clean   # 清理
 ```
-
-## Examples
-
-### AI Agent Integration
-
-```python
-import subprocess
-import json
-
-def get_quote(symbol):
-    """Get real-time quote for a symbol"""
-    result = subprocess.run(
-        ['longbridge-fs', 'quote', symbol, '--format', 'json'],
-        capture_output=True,
-        text=True
-    )
-    return json.loads(result.stdout)
-
-def submit_market_order(symbol, side, quantity):
-    """Submit a market order"""
-    result = subprocess.run(
-        ['longbridge-fs', 'order', 'submit', symbol, side, str(quantity), '--format', 'json'],
-        capture_output=True,
-        text=True
-    )
-    return json.loads(result.stdout)
-
-def get_positions():
-    """Get current positions"""
-    result = subprocess.run(
-        ['longbridge-fs', 'account', 'positions', '--format', 'json'],
-        capture_output=True,
-        text=True
-    )
-    return json.loads(result.stdout)
-
-# Example usage
-quote = get_quote('AAPL.US')
-print(f"AAPL price: ${quote['last']}")
-
-# Check positions
-positions = get_positions()
-for channel in positions:
-    for pos in channel['positions']:
-        print(f"{pos['symbol']}: {pos['quantity']} shares @ {pos['cost_price']}")
-
-# Submit order
-order = submit_market_order('TSLA.US', 'BUY', 10)
-print(f"Order submitted: {order['order_id']}")
-```
-
-### Scripting Workflows
-
-```bash
-#!/bin/bash
-# Daily portfolio check
-
-echo "=== Account Balance ==="
-longbridge-fs account balance
-
-echo -e "\n=== Current Positions ==="
-longbridge-fs account positions
-
-echo -e "\n=== Today's Orders ==="
-longbridge-fs account orders
-
-echo -e "\n=== Key Holdings ==="
-longbridge-fs quote AAPL.US TSLA.US NVDA.US
-```
-
-## Authentication
-
-The CLI uses OAuth 2.0 via the Longbridge SDK. Token management is handled automatically by the SDK.
-
-```bash
-# Verify credentials and test connectivity
-longbridge-fs check
-
-# Output:
-# Checking Longbridge API connectivity...
-#
-# Credential file: credential
-# Status: ✓ Found
-#
-# Loading credentials... ✓ Success
-# Detecting region... ✓ Global (CN auto-detection not yet implemented)
-# Testing Trade API... ✓ Connected
-# Testing Quote API... ✓ Connected
-#
-# ✓ All checks passed. API is ready to use.
-```
-
-Note: OAuth browser flow and China Mainland auto-detection are planned future enhancements.
-
-## Configuration
-
-### Credential File Format
-
-The credential file uses key=value format:
-
-```
-api_key=YOUR_APP_KEY
-secret=YOUR_APP_SECRET
-access_token=YOUR_ACCESS_TOKEN
-```
-
-### Environment Variables
-
-You can also set credentials via environment variables (future enhancement):
-
-```bash
-export LONGBRIDGE_API_KEY=YOUR_APP_KEY
-export LONGBRIDGE_SECRET=YOUR_APP_SECRET
-export LONGBRIDGE_ACCESS_TOKEN=YOUR_ACCESS_TOKEN
-```
-
-## Troubleshooting
-
-### Authentication Errors
-
-```bash
-# Verify credentials
-longbridge-fs check
-
-# Check credential file format
-cat configs/credential
-```
-
-### API Connectivity Issues
-
-```bash
-# Test with verbose output
-longbridge-fs quote AAPL.US --verbose
-
-# Use mock mode for testing
-longbridge-fs controller --root ./fs --mock
-```
-
-### Order Submission Failures
-
-- Check account balance: `longbridge-fs account balance`
-- Verify market hours
-- Check symbol format (e.g., `AAPL.US`, `700.HK`)
-- Review order type and parameters
-
-## FAQ
-
-### Q: What markets are supported?
-
-A: All markets supported by Longbridge API: Hong Kong (HK), US (US), China A-shares (CN), etc.
-
-### Q: Can I use this in production?
-
-A: Yes, but use proper risk management. Start with small positions and use the `--mock` mode for testing.
-
-### Q: How do I get API credentials?
-
-A: Sign up at the [Longbridge Developer Portal](https://open.longportapp.com) to obtain API keys.
-
-### Q: Can I run multiple commands in parallel?
-
-A: Yes, CLI commands can be run in parallel. However, avoid running multiple `controller` instances on the same file system.
-
-### Q: How is this different from the official Longbridge Terminal?
-
-A: This is an independent implementation focused on AI-agent integration and file-system based workflows. It provides both CLI commands and a file-based interface.
-
-## Contributing
-
-Contributions are welcome! Please submit issues and pull requests on GitHub.
-
-## Related Links
-
-- [Longbridge OpenAPI Documentation](https://open.longportapp.com/docs)
-- [Longbridge OpenAPI Go SDK](https://github.com/longportapp/openapi-go)
-- [Beancount Documentation](https://beancount.github.io/docs/)
-
-## License
-
-MIT License - see [LICENSE](LICENSE) file for details

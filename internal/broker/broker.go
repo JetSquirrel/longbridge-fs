@@ -13,7 +13,7 @@ import (
 	"longbridge-fs/internal/ledger"
 	"longbridge-fs/internal/model"
 
-	"github.com/longportapp/openapi-go/trade"
+	"github.com/longbridge/openapi-go/trade"
 	"github.com/shopspring/decimal"
 )
 

@@ -11,7 +11,7 @@ import (
 	"longbridge-fs/internal/market"
 	"longbridge-fs/internal/model"
 
-	"github.com/longportapp/openapi-go/trade"
+	"github.com/longbridge/openapi-go/trade"
 	"github.com/shopspring/decimal"
 )
 

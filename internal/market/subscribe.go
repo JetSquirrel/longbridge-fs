@@ -12,7 +12,7 @@ import (
 
 	"longbridge-fs/internal/model"
 
-	"github.com/longportapp/openapi-go/quote"
+	"github.com/longbridge/openapi-go/quote"
 )
 
 // SubscriptionManager manages WebSocket-based quote subscriptions

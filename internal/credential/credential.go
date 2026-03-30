@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/longportapp/openapi-go/config"
+	"github.com/longbridge/openapi-go/config"
 )
 
 // Load reads a key=value credential file and returns a config.Config.

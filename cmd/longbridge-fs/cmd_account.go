@@ -6,7 +6,7 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/longportapp/openapi-go/trade"
+	"github.com/longbridge/openapi-go/trade"
 	"github.com/shopspring/decimal"
 	"github.com/spf13/cobra"
 )

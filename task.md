@@ -2,8 +2,8 @@
 
 **Project**: longbridge-fs
 **Status**: Imported
-**Last Update**: 2026-03-31 07:35:38 UTC
-**Current Iteration**: 0
+**Last Update**: 2026-03-31 12:31:37 UTC
+**Current Iteration**: 1
 **Source**: https://github.com/JetSquirrel/longbridge-fs
 
 ### Phase 1: 基础管道 (v0.3.0)
@@ -22,10 +22,10 @@
 
 目标：信号到 rebalance 的完整链路
 
-- [ ] `portfolio/target.json` → `current.json` → `diff.json` 计算
-- [ ] `rebalance/pending.json` → ORDER 转化
-- [ ] `portfolio/history/` 快照归档
-- [ ] `--auto-rebalance` 模式
+- [x] `portfolio/target.json` → `current.json` → `diff.json` 计算
+- [x] `rebalance/pending.json` → ORDER 转化
+- [x] `portfolio/history/` 快照归档
+- [x] `--auto-rebalance` 模式
 
 ### Phase 3: 研究与信号 (v0.5.0)
 

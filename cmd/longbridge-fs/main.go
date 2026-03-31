@@ -15,6 +15,7 @@ import (
 	"longbridge-fs/internal/credential"
 	"longbridge-fs/internal/ledger"
 	"longbridge-fs/internal/market"
+	"longbridge-fs/internal/portfolio"
 	"longbridge-fs/internal/risk"
 
 	"github.com/longbridge/openapi-go/quote"
@@ -249,6 +250,27 @@ func runInit(root string) error {
 		}
 	}
 
+	// Phase 2: L3 Portfolio target (example, disabled by default)
+	targetPortfolioPath := filepath.Join(root, "portfolio", "target.json")
+	if _, err := os.Stat(targetPortfolioPath); os.IsNotExist(err) {
+		targetDefault := `{
+  "version": 1,
+  "updated_at": "",
+  "updated_by": "",
+  "strategy": "signal_weighted",
+  "total_capital_pct": 0.80,
+  "positions": {},
+  "cash_reserve_pct": 0.20
+}
+`
+		if err := os.WriteFile(targetPortfolioPath, []byte(targetDefault), 0644); err != nil {
+			return fmt.Errorf("failed to create target portfolio: %w", err)
+		}
+		if verbose {
+			log.Printf("created file: %s", targetPortfolioPath)
+		}
+	}
+
 	// Phase 1: L4 Risk policy
 	policyPath := filepath.Join(root, "trade", "risk", "policy.json")
 	if _, err := os.Stat(policyPath); os.IsNotExist(err) {
@@ -369,11 +391,12 @@ func runInit(root string) error {
 // controllerCmd creates the controller subcommand
 func controllerCmd() *cobra.Command {
 	var (
-		root         string
-		interval     time.Duration
-		credFile     string
-		mock         bool
-		compactAfter int
+		root          string
+		interval      time.Duration
+		credFile      string
+		mock          bool
+		compactAfter  int
+		autoRebalance bool
 	)
 
 	cmd := &cobra.Command{
@@ -387,7 +410,8 @@ The controller monitors the file system and automatically:
   - Updates real-time quotes via WebSocket subscriptions
   - Generates PnL and portfolio reports
   - Enforces risk control rules (stop-loss/take-profit)
-  - Compacts ledger history into blocks`,
+  - Compacts ledger history into blocks
+  - Syncs portfolio current snapshot and computes rebalance diff (Phase 2)`,
 		Example: `  # Run with real API
   longbridge-fs controller --root ./fs --credential ./configs/credential
 
@@ -395,9 +419,12 @@ The controller monitors the file system and automatically:
   longbridge-fs controller --root ./fs --mock
 
   # Custom polling interval
-  longbridge-fs controller --root ./fs --interval 5s`,
+  longbridge-fs controller --root ./fs --interval 5s
+
+  # Enable automatic rebalance execution
+  longbridge-fs controller --root ./fs --auto-rebalance`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runController(root, interval, credFile, mock, compactAfter)
+			return runController(root, interval, credFile, mock, compactAfter, autoRebalance)
 		},
 	}
 
@@ -406,11 +433,12 @@ The controller monitors the file system and automatically:
 	cmd.Flags().StringVar(&credFile, "credential", "credential", "Credential file path")
 	cmd.Flags().BoolVar(&mock, "mock", false, "Use mock execution without API")
 	cmd.Flags().IntVar(&compactAfter, "compact-after", 10, "Compact after N executed orders, 0=disable")
+	cmd.Flags().BoolVar(&autoRebalance, "auto-rebalance", false, "Automatically execute rebalance when pending.json is created")
 
 	return cmd
 }
 
-func runController(root string, interval time.Duration, credFile string, mock bool, compactAfter int) error {
+func runController(root string, interval time.Duration, credFile string, mock bool, compactAfter int, autoRebalance bool) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -512,6 +540,13 @@ func runController(root string, interval time.Duration, credFile string, mock bo
 				} else if verbose {
 					log.Printf("✓ Account state refreshed")
 				}
+			}
+
+			// Phase 2: Sync portfolio current snapshot, compute diff, execute rebalance
+			if err := portfolio.SyncPortfolio(root, autoRebalance); err != nil {
+				log.Printf("❌ Portfolio sync failed: %v", err)
+			} else if verbose {
+				log.Printf("✓ Portfolio synced")
 			}
 
 			// Process WebSocket subscription requests (subscribe/unsubscribe)

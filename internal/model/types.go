@@ -249,3 +249,79 @@ type OrderMetadata struct {
 	SignalRefs  []string `json:"signal_refs,omitempty"`  // triggering signals
 }
 
+// --- Phase 2: L3 Portfolio Construction types ---
+
+// TargetPosition defines the desired weight for a symbol in the target portfolio
+type TargetPosition struct {
+	Weight     float64  `json:"weight"`
+	Reason     string   `json:"reason,omitempty"`
+	SignalRefs []string `json:"signal_refs,omitempty"`
+}
+
+// PortfolioTarget is the JSON structure for portfolio/target.json
+type PortfolioTarget struct {
+	Version         int                       `json:"version"`
+	UpdatedAt       string                    `json:"updated_at"`
+	UpdatedBy       string                    `json:"updated_by,omitempty"`
+	Strategy        string                    `json:"strategy,omitempty"`
+	TotalCapitalPct float64                   `json:"total_capital_pct"`
+	Positions       map[string]TargetPosition `json:"positions"`
+	CashReservePct  float64                   `json:"cash_reserve_pct"`
+}
+
+// CurrentPosition holds the live snapshot for one position
+type CurrentPosition struct {
+	Qty         int64   `json:"qty"`
+	MarketValue float64 `json:"market_value"`
+	Weight      float64 `json:"weight"`
+	AvgCost     float64 `json:"avg_cost"`
+}
+
+// PortfolioCurrent is the JSON structure for portfolio/current.json
+type PortfolioCurrent struct {
+	UpdatedAt   string                     `json:"updated_at"`
+	TotalEquity float64                    `json:"total_equity"`
+	Positions   map[string]CurrentPosition `json:"positions"`
+	Cash        float64                    `json:"cash"`
+	CashPct     float64                    `json:"cash_pct"`
+}
+
+// PortfolioAdjustment describes a single rebalance action for one symbol
+type PortfolioAdjustment struct {
+	Symbol        string  `json:"symbol"`
+	CurrentWeight float64 `json:"current_weight"`
+	TargetWeight  float64 `json:"target_weight"`
+	Action        string  `json:"action"` // ADD, REDUCE, HOLD, REMOVE
+	DeltaQty      int64   `json:"delta_qty"`
+	DeltaValue    float64 `json:"delta_value"`
+	EstimatedSide string  `json:"estimated_side"`
+	EstimatedQty  int64   `json:"estimated_qty"`
+}
+
+// PortfolioDiff is the JSON structure for portfolio/diff.json
+type PortfolioDiff struct {
+	ComputedAt        string                `json:"computed_at"`
+	TargetVersion     int                   `json:"target_version"`
+	Adjustments       []PortfolioAdjustment `json:"adjustments"`
+	RequiresRebalance bool                  `json:"requires_rebalance"`
+}
+
+// RebalanceOrder is one order in the rebalance pending list
+type RebalanceOrder struct {
+	Symbol string  `json:"symbol"`
+	Side   string  `json:"side"`
+	Qty    int64   `json:"qty"`
+	Type   string  `json:"type"`
+	Price  float64 `json:"price"`
+	TIF    string  `json:"tif"`
+}
+
+// RebalancePending is the JSON structure for portfolio/rebalance/pending.json
+type RebalancePending struct {
+	RebalanceID string           `json:"rebalance_id"`
+	CreatedAt   string           `json:"created_at"`
+	CreatedBy   string           `json:"created_by,omitempty"`
+	AutoExecute bool             `json:"auto_execute"`
+	Orders      []RebalanceOrder `json:"orders"`
+}
+

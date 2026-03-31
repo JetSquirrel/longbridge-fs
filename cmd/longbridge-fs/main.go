@@ -483,6 +483,12 @@ func runController(root string, interval time.Duration, credFile string, mock bo
 
 	log.Printf("🚀 Controller started (interval=%s, compact-after=%d)", interval, compactAfter)
 
+	// Phase 4: Initialize algorithm scheduler
+	bcPath := filepath.Join(root, "trade", "beancount.txt")
+	algoScheduler := broker.NewAlgoScheduler(bcPath, tc, useMock)
+	defer algoScheduler.Shutdown()
+	log.Println("✓ Algorithm scheduler initialized")
+
 	executedCount := 0
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -503,13 +509,16 @@ func runController(root string, interval time.Duration, credFile string, mock bo
 			}
 
 			// Process trade ledger
-			n, err := broker.ProcessLedger(ctx, tc, root, useMock)
+			n, err := broker.ProcessLedgerWithScheduler(ctx, tc, root, useMock, algoScheduler)
 			if err != nil {
 				log.Printf("❌ Order processing failed: %v", err)
 			} else if n > 0 && verbose {
 				log.Printf("✓ Processed %d order(s)", n)
 			}
 			executedCount += n
+
+			// Cleanup completed algo tasks periodically
+			algoScheduler.CleanupCompleted()
 
 			// Refresh account state (only with real API)
 			if tc != nil {

@@ -100,12 +100,12 @@ func (l *Logger) SetRiskStep(checked, passed, rejected int, rejections []Rejecti
 }
 
 // SetExecutionStep sets the execution step data
-func (l *Logger) SetExecutionStep(submitted, executions, rejections int) {
+func (l *Logger) SetExecutionStep(submitted, executions, rejections, algoTasksActive int) {
 	l.log.Steps.Execution = ExecutionStep{
 		OrdersSubmitted: submitted,
 		Executions:      executions,
 		Rejections:      rejections,
-		AlgoTasksActive: 0,
+		AlgoTasksActive: algoTasksActive,
 	}
 }
 

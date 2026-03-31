@@ -55,6 +55,10 @@ type ParsedOrder struct {
 	Source      string   // manual, rebalance, risk_trigger
 	RebalanceID string   // links to portfolio rebalance
 	SignalRefs  []string // triggering signals (comma-separated in beancount)
+	// Phase 4: Algorithm execution fields
+	Algo         string // NONE (default), TWAP, ICEBERG
+	AlgoDuration string // e.g., "30m", "1h"
+	AlgoSlices   int    // number of slices to split order into
 }
 
 // --- Quote JSON types ---

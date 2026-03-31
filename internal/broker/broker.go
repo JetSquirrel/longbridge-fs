@@ -22,6 +22,11 @@ import (
 // ProcessLedger reads the beancount ledger, finds unprocessed ORDER entries,
 // and executes them. Returns the number of new executions.
 func ProcessLedger(ctx context.Context, tc *trade.TradeContext, root string, useMock bool) (int, error) {
+	return ProcessLedgerWithScheduler(ctx, tc, root, useMock, nil)
+}
+
+// ProcessLedgerWithScheduler processes ledger with optional algo scheduler
+func ProcessLedgerWithScheduler(ctx context.Context, tc *trade.TradeContext, root string, useMock bool, scheduler *AlgoScheduler) (int, error) {
 	bcPath := filepath.Join(root, "trade", "beancount.txt")
 	entries, err := ledger.ParseEntries(bcPath)
 	if err != nil {
@@ -105,6 +110,21 @@ func ProcessLedger(ctx context.Context, tc *trade.TradeContext, root string, use
 			if err := gate.IncrementOrderCount(); err != nil {
 				log.Printf("WARNING: failed to increment order count: %v", err)
 			}
+		}
+
+		// Phase 4: Check if this is an algorithmic order
+		if scheduler != nil && (o.Algo == "TWAP" || o.Algo == "ICEBERG") {
+			// Create algo task instead of direct execution
+			if err := scheduler.CreateTask(o); err != nil {
+				sym := ledger.FullSymbol(o.Symbol, o.Market)
+				reason := fmt.Sprintf("ALGO_ERROR: %s", err.Error())
+				AppendRejection(bcPath, o.IntentID, sym, o.Side, o.Qty, reason)
+				log.Printf("algo task creation failed: intent=%s err=%v", o.IntentID, err)
+			}
+			// Mark as processed so we don't try to execute it again
+			processed[o.IntentID] = true
+			executed++
+			continue
 		}
 
 		sym := ledger.FullSymbol(o.Symbol, o.Market)
@@ -191,6 +211,11 @@ func ExecuteOrderMock(o model.ParsedOrder) (orderID string, price string) {
 
 // AppendExecution appends an EXECUTION entry to the beancount ledger.
 func AppendExecution(bcPath, intentID, orderID, symbol, side, price, qty string) {
+	AppendExecutionWithMeta(bcPath, intentID, orderID, symbol, side, price, qty, nil)
+}
+
+// AppendExecutionWithMeta appends an EXECUTION entry with additional metadata
+func AppendExecutionWithMeta(bcPath, intentID, orderID, symbol, side, price, qty string, meta map[string]string) {
 	f, err := os.OpenFile(bcPath, os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Printf("append execution failed: %v", err)
@@ -199,7 +224,15 @@ func AppendExecution(bcPath, intentID, orderID, symbol, side, price, qty string)
 	defer f.Close()
 
 	date := time.Now().Format("2006-01-02")
-	text := fmt.Sprintf("\n%s * \"EXECUTION\" \"%s %s\"\n", date, side, symbol)
+	executedAt := time.Now().Format(time.RFC3339)
+
+	// Build description with algo slice info if present
+	desc := fmt.Sprintf("%s %s", side, symbol)
+	if meta != nil && meta["slice"] != "" && meta["algo"] != "" {
+		desc = fmt.Sprintf("%s slice %s %s %s", meta["algo"], meta["slice"], side, symbol)
+	}
+
+	text := fmt.Sprintf("\n%s * \"EXECUTION\" \"%s\"\n", date, desc)
 	text += fmt.Sprintf("  ; intent_id: %s\n", intentID)
 	text += fmt.Sprintf("  ; order_id: %s\n", orderID)
 	text += fmt.Sprintf("  ; status: FILLED\n")
@@ -209,6 +242,17 @@ func AppendExecution(bcPath, intentID, orderID, symbol, side, price, qty string)
 	if price != "" {
 		text += fmt.Sprintf("  ; price: %s\n", price)
 	}
+	text += fmt.Sprintf("  ; executed_at: %s\n", executedAt)
+
+	// Add additional metadata
+	if meta != nil {
+		for k, v := range meta {
+			if k != "" && v != "" {
+				text += fmt.Sprintf("  ; %s: %s\n", k, v)
+			}
+		}
+	}
+
 	text += "\n"
 	f.WriteString(text)
 }

@@ -11,6 +11,79 @@ import (
 	"longbridge-fs/internal/model"
 )
 
+// AutoCreatePending reads portfolio/diff.json and, when requires_rebalance is true,
+// automatically generates portfolio/rebalance/pending.json so the controller can
+// process it on the next cycle. It is a no-op when pending.json already exists.
+func AutoCreatePending(root string) error {
+	// Read diff.json
+	diffPath := filepath.Join(root, "portfolio", "diff.json")
+	data, err := os.ReadFile(diffPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // No diff available
+		}
+		return fmt.Errorf("read diff: %w", err)
+	}
+
+	var diff model.PortfolioDiff
+	if err := json.Unmarshal(data, &diff); err != nil {
+		return fmt.Errorf("parse diff: %w", err)
+	}
+
+	if !diff.RequiresRebalance || len(diff.Adjustments) == 0 {
+		return nil // Nothing to do
+	}
+
+	// Don't overwrite an existing pending.json
+	pendingPath := filepath.Join(root, "portfolio", "rebalance", "pending.json")
+	if _, err := os.Stat(pendingPath); err == nil {
+		return nil // Already pending
+	}
+
+	// Convert diff adjustments to rebalance orders
+	rebalanceID := fmt.Sprintf("rebal-%s", time.Now().UTC().Format("20060102-150405"))
+	pending := model.RebalancePending{
+		RebalanceID: rebalanceID,
+		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+		CreatedBy:   "controller-auto-rebalance",
+		AutoExecute: true,
+		Orders:      make([]model.RebalanceOrder, 0, len(diff.Adjustments)),
+	}
+
+	for _, adj := range diff.Adjustments {
+		if adj.EstimatedQty <= 0 {
+			continue
+		}
+
+		order := model.RebalanceOrder{
+			Symbol: adj.Symbol,
+			Side:   adj.EstimatedSide,
+			Qty:    adj.EstimatedQty,
+			Type:   "MARKET",
+			TIF:    "DAY",
+		}
+
+		pending.Orders = append(pending.Orders, order)
+	}
+
+	if len(pending.Orders) == 0 {
+		return nil
+	}
+
+	// Write pending.json
+	rebalDir := filepath.Join(root, "portfolio", "rebalance")
+	if err := os.MkdirAll(rebalDir, 0755); err != nil {
+		return fmt.Errorf("create rebalance dir: %w", err)
+	}
+
+	out, err := json.MarshalIndent(pending, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal pending: %w", err)
+	}
+
+	return os.WriteFile(pendingPath, append(out, '\n'), 0644)
+}
+
 // ProcessRebalance reads portfolio/rebalance/pending.json and converts it to ORDER entries
 // in trade/beancount.txt, then archives the pending file to history/
 func ProcessRebalance(root string) error {
@@ -65,7 +138,7 @@ func writeRebalanceOrders(root string, pending *model.RebalancePending) error {
 
 		var orderLines strings.Builder
 		orderLines.WriteString("\n")
-		orderLines.WriteString(fmt.Sprintf("%s * \"ORDER\" \"%s %s %d %s\"\n",
+		orderLines.WriteString(fmt.Sprintf("%s * \"ORDER\" \"%s %d %s %s\"\n",
 			timestamp, order.Side, order.Qty, order.Symbol, pending.RebalanceID))
 		orderLines.WriteString(fmt.Sprintf("  ; intent_id: %s\n", intentID))
 		orderLines.WriteString(fmt.Sprintf("  ; side: %s\n", order.Side))

@@ -25,16 +25,16 @@
 - [x] `portfolio/target.json` → `current.json` → `diff.json` 计算
 - [x] `rebalance/pending.json` → ORDER 转化
 - [x] `portfolio/history/` 快照归档
-- [ ] `--auto-rebalance` 模式
+- [x] `--auto-rebalance` 模式
 
 ### Phase 3: 研究与信号 (v0.5.0)
 
 目标：数据管道自动化
 
 - [x] `research/watchlist.json` + Content API 集成
-- [ ] `signal/definitions/` 声明式配置
-- [ ] 内置指标计算 (SMA_CROSS, RSI, PRICE_CHANGE)
-- [ ] `signal/active.json` 聚合
+- [x] `signal/definitions/` 声明式配置
+- [x] 内置指标计算 (SMA_CROSS, RSI, PRICE_CHANGE)
+- [x] `signal/active.json` 聚合
 
 ### Phase 4: 算法执行 (v0.6.0)
 

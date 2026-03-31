@@ -325,6 +325,49 @@ type RebalanceOrder struct {
 	TIF    string  `json:"tif"`
 }
 
+// --- Phase 3: Signal types ---
+
+// SignalDefinition is the JSON structure for /signal/definitions/{name}.json
+type SignalDefinition struct {
+	Name        string                 `json:"name"`
+	Type        string                 `json:"type"`              // builtin, external
+	Version     int                    `json:"version"`
+	Params      map[string]interface{} `json:"params,omitempty"`  // indicator-specific params
+	Symbols     []string               `json:"symbols"`
+	Enabled     bool                   `json:"enabled"`
+	Description string                 `json:"description,omitempty"`
+}
+
+// SignalOutput is the JSON structure for /signal/output/{SYMBOL}/latest.json
+type SignalOutput struct {
+	Symbol    string        `json:"symbol"`
+	UpdatedAt string        `json:"updated_at"`
+	Signals   []SignalEntry `json:"signals"`
+}
+
+// SignalEntry represents a computed signal value
+type SignalEntry struct {
+	Name       string  `json:"name"`
+	Value      string  `json:"value"`      // BULLISH, BEARISH, NEUTRAL, POSITIVE, NEGATIVE
+	Strength   float64 `json:"strength"`   // 0.0 ~ 1.0
+	Detail     string  `json:"detail"`
+	ComputedAt string  `json:"computed_at"`
+}
+
+// ActiveSignals is the JSON structure for /signal/active.json
+type ActiveSignals struct {
+	UpdatedAt string              `json:"updated_at"`
+	Signals   []ActiveSignalEntry `json:"signals"`
+}
+
+// ActiveSignalEntry is one active signal in the aggregated view
+type ActiveSignalEntry struct {
+	Symbol   string  `json:"symbol"`
+	Name     string  `json:"name"`
+	Value    string  `json:"value"`
+	Strength float64 `json:"strength"`
+}
+
 // --- Phase 3: Research & Signal types ---
 
 // Watchlist is the JSON structure for /research/watchlist.json

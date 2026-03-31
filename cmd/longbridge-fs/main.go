@@ -18,6 +18,7 @@ import (
 	"longbridge-fs/internal/portfolio"
 	"longbridge-fs/internal/research"
 	"longbridge-fs/internal/risk"
+	signalpkg "longbridge-fs/internal/signal"
 
 	"github.com/longbridge/openapi-go/quote"
 	"github.com/longbridge/openapi-go/trade"
@@ -371,11 +372,12 @@ func runInit(root string) error {
 // controllerCmd creates the controller subcommand
 func controllerCmd() *cobra.Command {
 	var (
-		root         string
-		interval     time.Duration
-		credFile     string
-		mock         bool
-		compactAfter int
+		root          string
+		interval      time.Duration
+		credFile      string
+		mock          bool
+		compactAfter  int
+		autoRebalance bool
 	)
 
 	cmd := &cobra.Command{
@@ -399,7 +401,7 @@ The controller monitors the file system and automatically:
   # Custom polling interval
   longbridge-fs controller --root ./fs --interval 5s`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runController(root, interval, credFile, mock, compactAfter)
+			return runController(root, interval, credFile, mock, compactAfter, autoRebalance)
 		},
 	}
 
@@ -408,11 +410,12 @@ The controller monitors the file system and automatically:
 	cmd.Flags().StringVar(&credFile, "credential", "credential", "Credential file path")
 	cmd.Flags().BoolVar(&mock, "mock", false, "Use mock execution without API")
 	cmd.Flags().IntVar(&compactAfter, "compact-after", 10, "Compact after N executed orders, 0=disable")
+	cmd.Flags().BoolVar(&autoRebalance, "auto-rebalance", false, "Automatically create rebalance orders when portfolio drift is detected")
 
 	return cmd
 }
 
-func runController(root string, interval time.Duration, credFile string, mock bool, compactAfter int) error {
+func runController(root string, interval time.Duration, credFile string, mock bool, compactAfter int, autoRebalance bool) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -475,6 +478,7 @@ func runController(root string, interval time.Duration, credFile string, mock bo
 		log.Printf("  Interval: %s", interval)
 		log.Printf("  Compact after: %d orders", compactAfter)
 		log.Printf("  Mock mode: %v", useMock)
+		log.Printf("  Auto-rebalance: %v", autoRebalance)
 	}
 
 	log.Printf("🚀 Controller started (interval=%s, compact-after=%d)", interval, compactAfter)
@@ -540,6 +544,15 @@ func runController(root string, interval time.Duration, credFile string, mock bo
 				}
 			}
 
+			// Phase 3: Compute builtin signals from signal/definitions/
+			if err := signalpkg.ComputeAll(root); err != nil {
+				if verbose {
+					log.Printf("⚠ Signal computation failed: %v", err)
+				}
+			} else if verbose {
+				log.Printf("✓ Signals computed")
+			}
+
 			// Generate PnL report (positions + current prices — file-only, works in mock)
 			if err := account.GeneratePnL(root); err != nil {
 				log.Printf("❌ PnL generation failed: %v", err)
@@ -566,6 +579,15 @@ func runController(root string, interval time.Duration, credFile string, mock bo
 				log.Printf("❌ Portfolio diff computation failed: %v", err)
 			} else if verbose {
 				log.Printf("✓ Portfolio diff computed")
+			}
+
+			// Phase 2: Auto-rebalance mode: create pending.json from diff when drift detected
+			if autoRebalance {
+				if err := portfolio.AutoCreatePending(root); err != nil {
+					log.Printf("❌ Auto-rebalance failed: %v", err)
+				} else if verbose {
+					log.Printf("✓ Auto-rebalance check complete")
+				}
 			}
 
 			// Phase 2: Process pending rebalance orders

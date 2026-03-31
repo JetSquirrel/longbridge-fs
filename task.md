@@ -4,13 +4,13 @@
 
 目标：跑通五层目录结构 + 前置风控
 
-- [ ] `fs init` 创建新增目录
-- [ ] `internal/riskgate/` 实现前置风控引擎
-- [ ] Controller 插入 `preTradeCheck()` 步骤
-- [ ] `trade/risk/policy.json` + `pre_trade.json` + `position_limits.json`
-- [ ] ORDER 扩展字段 (`source`, `signal_refs`, `rebalance_id`)
-- [ ] 审计日志骨架 (`audit/`)
-- [ ] 文档更新
+- [x] `fs init` 创建新增目录
+- [x] `internal/riskgate/` 实现前置风控引擎
+- [x] Controller 插入 `preTradeCheck()` 步骤
+- [x] `trade/risk/policy.json` + `pre_trade.json` + `position_limits.json`
+- [x] ORDER 扩展字段 (`source`, `signal_refs`, `rebalance_id`)
+- [x] 审计日志骨架 (`audit/`)
+- [x] 文档更新
 
 ### Phase 2: 组合构建 (v0.4.0)
 

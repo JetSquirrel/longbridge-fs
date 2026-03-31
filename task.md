@@ -22,16 +22,16 @@
 
 目标：信号到 rebalance 的完整链路
 
-- [ ] `portfolio/target.json` → `current.json` → `diff.json` 计算
-- [ ] `rebalance/pending.json` → ORDER 转化
-- [ ] `portfolio/history/` 快照归档
+- [x] `portfolio/target.json` → `current.json` → `diff.json` 计算
+- [x] `rebalance/pending.json` → ORDER 转化
+- [x] `portfolio/history/` 快照归档
 - [ ] `--auto-rebalance` 模式
 
 ### Phase 3: 研究与信号 (v0.5.0)
 
 目标：数据管道自动化
 
-- [ ] `research/watchlist.json` + Content API 集成
+- [x] `research/watchlist.json` + Content API 集成
 - [ ] `signal/definitions/` 声明式配置
 - [ ] 内置指标计算 (SMA_CROSS, RSI, PRICE_CHANGE)
 - [ ] `signal/active.json` 聚合

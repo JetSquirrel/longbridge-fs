@@ -15,6 +15,8 @@ import (
 	"longbridge-fs/internal/credential"
 	"longbridge-fs/internal/ledger"
 	"longbridge-fs/internal/market"
+	"longbridge-fs/internal/portfolio"
+	"longbridge-fs/internal/research"
 	"longbridge-fs/internal/risk"
 
 	"github.com/longbridge/openapi-go/quote"
@@ -526,6 +528,18 @@ func runController(root string, interval time.Duration, credFile string, mock bo
 				market.RefreshQuotes(ctx, qc, root)
 			}
 
+			// Phase 3: Refresh research feeds (news/topics from Content API)
+			if !useMock {
+				if err := research.RefreshFeeds(ctx, root, credFile); err != nil {
+					// Don't fail the entire cycle for research refresh errors
+					if verbose {
+						log.Printf("⚠ Research refresh failed: %v", err)
+					}
+				} else if verbose {
+					log.Printf("✓ Research feeds refreshed")
+				}
+			}
+
 			// Generate PnL report (positions + current prices — file-only, works in mock)
 			if err := account.GeneratePnL(root); err != nil {
 				log.Printf("❌ PnL generation failed: %v", err)
@@ -538,6 +552,27 @@ func runController(root string, interval time.Duration, credFile string, mock bo
 				log.Printf("❌ Portfolio generation failed: %v", err)
 			} else if verbose {
 				log.Printf("✓ Portfolio summary generated")
+			}
+
+			// Phase 2: Portfolio construction - sync current portfolio state
+			if err := portfolio.SyncCurrent(root); err != nil {
+				log.Printf("❌ Portfolio sync failed: %v", err)
+			} else if verbose {
+				log.Printf("✓ Portfolio current state synced")
+			}
+
+			// Phase 2: Compute portfolio diff (target vs current)
+			if err := portfolio.ComputeDiff(root); err != nil {
+				log.Printf("❌ Portfolio diff computation failed: %v", err)
+			} else if verbose {
+				log.Printf("✓ Portfolio diff computed")
+			}
+
+			// Phase 2: Process pending rebalance orders
+			if err := portfolio.ProcessRebalance(root); err != nil {
+				log.Printf("❌ Rebalance processing failed: %v", err)
+			} else if verbose {
+				log.Printf("✓ Rebalance processed")
 			}
 
 			// Risk control: stop-loss / take-profit

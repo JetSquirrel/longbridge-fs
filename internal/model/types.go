@@ -249,3 +249,136 @@ type OrderMetadata struct {
 	SignalRefs  []string `json:"signal_refs,omitempty"`  // triggering signals
 }
 
+// --- Phase 2: Portfolio Construction types ---
+
+// TargetPortfolio is the JSON structure for /portfolio/target.json
+type TargetPortfolio struct {
+	Version         int                       `json:"version"`
+	UpdatedAt       string                    `json:"updated_at"`
+	UpdatedBy       string                    `json:"updated_by"`
+	Strategy        string                    `json:"strategy"`
+	TotalCapitalPct float64                   `json:"total_capital_pct"`
+	Positions       map[string]TargetPosition `json:"positions"`
+	CashReservePct  float64                   `json:"cash_reserve_pct"`
+}
+
+// TargetPosition defines target allocation for a symbol
+type TargetPosition struct {
+	Weight     float64  `json:"weight"`
+	Reason     string   `json:"reason"`
+	SignalRefs []string `json:"signal_refs"`
+}
+
+// CurrentPortfolio is the JSON structure for /portfolio/current.json
+type CurrentPortfolio struct {
+	UpdatedAt    string                        `json:"updated_at"`
+	TotalEquity  float64                       `json:"total_equity"`
+	Positions    map[string]CurrentPosition    `json:"positions"`
+	Cash         float64                       `json:"cash"`
+	CashPct      float64                       `json:"cash_pct"`
+}
+
+// CurrentPosition represents current holding with market value
+type CurrentPosition struct {
+	Qty         float64 `json:"qty"`
+	MarketValue float64 `json:"market_value"`
+	Weight      float64 `json:"weight"`
+	AvgCost     float64 `json:"avg_cost"`
+}
+
+// PortfolioDiff is the JSON structure for /portfolio/diff.json
+type PortfolioDiff struct {
+	ComputedAt        string                `json:"computed_at"`
+	TargetVersion     int                   `json:"target_version"`
+	Adjustments       []Adjustment          `json:"adjustments"`
+	RequiresRebalance bool                  `json:"requires_rebalance"`
+}
+
+// Adjustment describes a required portfolio adjustment
+type Adjustment struct {
+	Symbol        string  `json:"symbol"`
+	CurrentWeight float64 `json:"current_weight"`
+	TargetWeight  float64 `json:"target_weight"`
+	Action        string  `json:"action"` // ADD, REDUCE, CLOSE, HOLD
+	DeltaQty      int64   `json:"delta_qty"`
+	DeltaValue    float64 `json:"delta_value"`
+	EstimatedSide string  `json:"estimated_side"` // BUY, SELL
+	EstimatedQty  int64   `json:"estimated_qty"`
+}
+
+// RebalancePending is the JSON structure for /portfolio/rebalance/pending.json
+type RebalancePending struct {
+	RebalanceID string              `json:"rebalance_id"`
+	CreatedAt   string              `json:"created_at"`
+	CreatedBy   string              `json:"created_by"`
+	AutoExecute bool                `json:"auto_execute"`
+	Orders      []RebalanceOrder    `json:"orders"`
+}
+
+// RebalanceOrder defines an order in a rebalance operation
+type RebalanceOrder struct {
+	Symbol string  `json:"symbol"`
+	Side   string  `json:"side"`
+	Qty    int64   `json:"qty"`
+	Type   string  `json:"type"`
+	Price  float64 `json:"price,omitempty"`
+	TIF    string  `json:"tif"`
+}
+
+// --- Phase 3: Research & Signal types ---
+
+// Watchlist is the JSON structure for /research/watchlist.json
+type Watchlist struct {
+	Symbols         []string `json:"symbols"`
+	RefreshInterval string   `json:"refresh_interval"` // e.g., "5m"
+	Feeds           []string `json:"feeds"`            // e.g., ["news", "topics"]
+}
+
+// NewsFeed is the JSON structure for /research/feeds/news/{SYMBOL}/latest.json
+type NewsFeed struct {
+	Symbol    string     `json:"symbol"`
+	FetchedAt string     `json:"fetched_at"`
+	Items     []NewsItem `json:"items"`
+}
+
+// NewsItem represents a single news article
+type NewsItem struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Source      string `json:"source"`
+	PublishedAt string `json:"published_at"`
+	Summary     string `json:"summary"`
+	URL         string `json:"url,omitempty"`
+}
+
+// TopicsFeed is the JSON structure for /research/feeds/topics/{SYMBOL}/latest.json
+type TopicsFeed struct {
+	Symbol    string      `json:"symbol"`
+	FetchedAt string      `json:"fetched_at"`
+	Items     []TopicItem `json:"items"`
+}
+
+// TopicItem represents a discussion topic
+type TopicItem struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Source      string `json:"source"`
+	PublishedAt string `json:"published_at"`
+	Summary     string `json:"summary"`
+	URL         string `json:"url,omitempty"`
+}
+
+// ResearchSummary is the JSON structure for /research/summary.json
+type ResearchSummary struct {
+	UpdatedAt string                       `json:"updated_at"`
+	Symbols   map[string]SymbolResearch    `json:"symbols"`
+}
+
+// SymbolResearch tracks available research data for a symbol
+type SymbolResearch struct {
+	HasQuote      bool     `json:"has_quote"`
+	HasNews       bool     `json:"has_news"`
+	HasTopics     bool     `json:"has_topics"`
+	CustomFeeds   []string `json:"custom_feeds"`
+}
+

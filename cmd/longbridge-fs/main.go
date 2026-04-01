@@ -487,6 +487,9 @@ func runController(root string, interval time.Duration, credFile string, mock bo
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
+	// Phase 4: Algo scheduler persists across ticks to track active goroutines.
+	algoScheduler := broker.NewAlgoScheduler()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -502,12 +505,12 @@ func runController(root string, interval time.Duration, credFile string, mock bo
 				return nil
 			}
 
-			// Process trade ledger
-			n, err := broker.ProcessLedger(ctx, tc, root, useMock)
+			// Process trade ledger (with algo scheduler support)
+			n, err := broker.ProcessLedgerWithScheduler(ctx, tc, root, useMock, algoScheduler)
 			if err != nil {
 				log.Printf("❌ Order processing failed: %v", err)
 			} else if n > 0 && verbose {
-				log.Printf("✓ Processed %d order(s)", n)
+				log.Printf("✓ Processed %d order(s) (algo_active=%d)", n, algoScheduler.ActiveCount())
 			}
 			executedCount += n
 

@@ -3,6 +3,7 @@ package ledger
 import (
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"longbridge-fs/internal/model"
@@ -88,6 +89,15 @@ func OrderFromEntry(e model.Entry) model.ParsedOrder {
 			refs[i] = strings.TrimSpace(ref)
 		}
 		o.SignalRefs = refs
+	}
+
+	// Phase 4: Parse algo execution fields
+	o.Algo = strings.ToUpper(e.Meta["algo"])
+	o.AlgoDuration = e.Meta["algo_duration"]
+	if slicesStr := e.Meta["algo_slices"]; slicesStr != "" {
+		if n, err := strconv.Atoi(slicesStr); err == nil && n > 0 {
+			o.AlgoSlices = n
+		}
 	}
 
 	if o.Market == "" {

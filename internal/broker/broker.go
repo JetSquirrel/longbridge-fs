@@ -213,6 +213,169 @@ func AppendExecution(bcPath, intentID, orderID, symbol, side, price, qty string)
 	f.WriteString(text)
 }
 
+// AppendExecutionWithMeta appends an EXECUTION entry to the beancount ledger
+// with an additional slice label for algo sub-orders (e.g. "1/5").
+func AppendExecutionWithMeta(bcPath, intentID, orderID, symbol, side, price, qty, slice string) {
+	f, err := os.OpenFile(bcPath, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Printf("append execution (algo) failed: %v", err)
+		return
+	}
+	defer f.Close()
+
+	date := time.Now().Format("2006-01-02")
+	sliceParts := strings.SplitN(slice, "/", 2)
+	totalSlices := slice
+	if len(sliceParts) == 2 {
+		totalSlices = sliceParts[1]
+	}
+	text := fmt.Sprintf("\n%s * \"EXECUTION\" \"slice %s %s %s\"\n", date, slice, side, symbol)
+	text += fmt.Sprintf("  ; intent_id: %s\n", intentID)
+	text += fmt.Sprintf("  ; slice: %s\n", slice)
+	text += fmt.Sprintf("  ; total_slices: %s\n", totalSlices)
+	text += fmt.Sprintf("  ; order_id: %s\n", orderID)
+	text += fmt.Sprintf("  ; side: %s\n", side)
+	text += fmt.Sprintf("  ; symbol: %s\n", symbol)
+	text += fmt.Sprintf("  ; filled_qty: %s\n", qty)
+	if price != "" {
+		text += fmt.Sprintf("  ; avg_price: %s\n", price)
+	}
+	text += fmt.Sprintf("  ; status: FILLED\n")
+	text += fmt.Sprintf("  ; executed_at: %s\n", time.Now().UTC().Format(time.RFC3339))
+	text += "\n"
+	f.WriteString(text)
+}
+
+// ProcessLedgerWithScheduler extends ProcessLedger with support for algorithmic
+// orders (TWAP, ICEBERG). Algo orders are handed off to the scheduler and do
+// not block the controller tick; plain orders are executed synchronously as before.
+func ProcessLedgerWithScheduler(ctx context.Context, tc *trade.TradeContext, root string, useMock bool, scheduler *AlgoScheduler) (int, error) {
+	bcPath := filepath.Join(root, "trade", "beancount.txt")
+	entries, err := ledger.ParseEntries(bcPath)
+	if err != nil {
+		return 0, err
+	}
+
+	processed, orders := ledger.BuildLedgerState(entries)
+	executed := 0
+
+	// Phase 1: Initialize risk gate
+	gate, err := riskgate.NewGate(root)
+	if err != nil {
+		log.Printf("WARNING: failed to initialize risk gate: %v", err)
+		gate = nil
+	}
+
+	var accountState *model.AccountState
+	if gate != nil && gate.IsEnabled() {
+		accountState, err = loadAccountState(root)
+		if err != nil {
+			log.Printf("WARNING: failed to load account state for risk checks: %v", err)
+		}
+	}
+
+	for _, oe := range orders {
+		o := ledger.OrderFromEntry(oe)
+		if o.IntentID == "" {
+			continue
+		}
+		if processed[o.IntentID] {
+			continue
+		}
+
+		// Skip algo orders already being processed by the scheduler.
+		if scheduler != nil && scheduler.IsActive(o.IntentID) {
+			log.Printf("algo order already active, skipping: intent=%s", o.IntentID)
+			continue
+		}
+
+		// Handle CANCEL action
+		if strings.ToUpper(o.Side) == "" && oe.Meta["action"] == "CANCEL" {
+			orderID := oe.Meta["order_id"]
+			if orderID == "" {
+				continue
+			}
+			if !useMock && tc != nil {
+				if err := tc.CancelOrder(ctx, orderID); err != nil {
+					AppendRejection(bcPath, o.IntentID, ledger.FullSymbol(o.Symbol, o.Market), o.Side, o.Qty, err.Error())
+				} else {
+					AppendExecution(bcPath, o.IntentID, "CANCEL-"+orderID, ledger.FullSymbol(o.Symbol, o.Market), "", "", "0")
+					log.Printf("cancelled order: intent=%s order_id=%s", o.IntentID, orderID)
+				}
+			}
+			processed[o.IntentID] = true
+			executed++
+			continue
+		}
+
+		// Phase 1: Pre-trade risk check
+		if gate != nil && gate.IsEnabled() && accountState != nil {
+			result := gate.CheckOrder(&o, accountState)
+			gate.UpdateStatus(result.Passed)
+
+			if !result.Passed {
+				if err := gate.RecordViolation(&o, result); err != nil {
+					log.Printf("WARNING: failed to record violation: %v", err)
+				}
+
+				if !gate.ShouldWarnOnly() {
+					sym := ledger.FullSymbol(o.Symbol, o.Market)
+					reason := fmt.Sprintf("RISK_%s: %s", strings.ToUpper(result.Rule), result.Reason)
+					AppendRejection(bcPath, o.IntentID, sym, o.Side, o.Qty, reason)
+					log.Printf("order rejected by risk gate: intent=%s rule=%s", o.IntentID, result.Rule)
+					processed[o.IntentID] = true
+					executed++
+					continue
+				} else {
+					log.Printf("WARNING: order violates risk rule but allowed in WARN mode: intent=%s rule=%s", o.IntentID, result.Rule)
+				}
+			}
+
+			if err := gate.IncrementOrderCount(); err != nil {
+				log.Printf("WARNING: failed to increment order count: %v", err)
+			}
+		}
+
+		sym := ledger.FullSymbol(o.Symbol, o.Market)
+
+		// Phase 4: Dispatch algo orders to the scheduler.
+		if o.Algo != "" && o.Algo != "NONE" && scheduler != nil {
+			task := &AlgoTask{
+				Order:   o,
+				BcPath:  bcPath,
+				TC:      tc,
+				UseMock: useMock,
+			}
+			scheduler.Submit(ctx, task)
+			log.Printf("algo order scheduled: intent=%s algo=%s slices=%d", o.IntentID, o.Algo, o.AlgoSlices)
+			processed[o.IntentID] = true
+			executed++
+			continue
+		}
+
+		// Plain (non-algo) order execution path.
+		if useMock {
+			orderID, price := ExecuteOrderMock(o)
+			AppendExecution(bcPath, o.IntentID, orderID, sym, o.Side, price, o.Qty)
+			log.Printf("mock execution: intent=%s -> %s", o.IntentID, orderID)
+		} else if tc != nil {
+			orderID, err := ExecuteOrder(ctx, tc, o)
+			if err != nil {
+				AppendRejection(bcPath, o.IntentID, sym, o.Side, o.Qty, err.Error())
+				log.Printf("order rejected: intent=%s err=%v", o.IntentID, err)
+			} else {
+				AppendExecution(bcPath, o.IntentID, orderID, sym, o.Side, o.Price, o.Qty)
+				log.Printf("order submitted: intent=%s -> %s", o.IntentID, orderID)
+			}
+		}
+
+		processed[o.IntentID] = true
+		executed++
+	}
+
+	return executed, nil
+}
+
 // AppendRejection appends a REJECTION entry to the beancount ledger.
 func AppendRejection(bcPath, intentID, symbol, side, qty, reason string) {
 	f, err := os.OpenFile(bcPath, os.O_APPEND|os.O_WRONLY, 0644)

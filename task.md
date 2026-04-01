@@ -40,9 +40,9 @@
 
 目标：大单拆分执行
 
-- [ ] TWAP 实现 (goroutine scheduler)
-- [ ] ICEBERG 实现
-- [ ] 算法子单关联与审计
+- [x] TWAP 实现 (goroutine scheduler)
+- [x] ICEBERG 实现
+- [x] 算法子单关联与审计
 
 ### Phase 5: Agent 集成增强 (v0.7.0)
 

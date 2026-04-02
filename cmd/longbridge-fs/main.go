@@ -542,7 +542,24 @@ func runController(root string, interval time.Duration, credFile string, mock bo
 			}
 
 			// Phase 3: Refresh research feeds (news/topics from Content API)
-			if !useMock {
+			if useMock {
+				// Mock mode: generate synthetic research data to enable full pipeline simulation
+				if err := research.RefreshFeedsMock(root); err != nil {
+					if verbose {
+						log.Printf("⚠ Mock research refresh failed: %v", err)
+					}
+				} else if verbose {
+					log.Printf("✓ Mock research feeds generated")
+				}
+				// Generate mock kline data for symbols in watchlist (enables signal computation)
+				if wl, err := research.ParseWatchlist(root); err == nil {
+					for _, sym := range wl.Symbols {
+						if err := research.GenerateMockKlineData(root, sym, 120); err != nil && verbose {
+							log.Printf("⚠ Mock kline data for %s failed: %v", sym, err)
+						}
+					}
+				}
+			} else {
 				if err := research.RefreshFeeds(ctx, root, credFile); err != nil {
 					// Don't fail the entire cycle for research refresh errors
 					if verbose {

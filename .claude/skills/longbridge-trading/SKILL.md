@@ -7,6 +7,14 @@ description: Execute stock trading operations using Longbridge FS file-based tra
 
 This skill enables you to perform stock trading operations through the Longbridge FS file-based trading system. All operations are performed by reading and writing files, making it natural for AI agents.
 
+The system implements a **five-layer Harness architecture**:
+
+```
+L1 Research → L2 Signal → L3 Portfolio → L4 Risk → L5 Execution
+```
+
+Each layer communicates through files, so you can read, write, or inject data at any layer without modifying code.
+
 ## When to Use This Skill
 
 Use this skill when the user wants to:
@@ -14,7 +22,10 @@ Use this skill when the user wants to:
 - Check stock quotes and market data
 - View account balance and positions
 - Monitor portfolio performance and P&L
-- Set up risk control rules (stop-loss/take-profit)
+- Set up signal definitions (SMA_CROSS, RSI, PRICE_CHANGE)
+- Configure portfolio targets and trigger rebalancing
+- Set up risk control rules (stop-loss/take-profit, pre-trade limits)
+- Run end-to-end pipeline: research → signal → portfolio → execution
 - Query trading history
 
 ## Prerequisites
@@ -35,188 +46,329 @@ Before using this skill, verify:
 
 If the controller is not running, start it:
 ```bash
-# Mock mode (for testing, no real API calls)
+# Mock mode (for testing, no real API calls — enables full pipeline simulation)
 ./build/longbridge-fs controller --root ./fs --mock --interval 2s &
 
 # Real mode (requires API credentials)
 ./build/longbridge-fs controller --root ./fs --credential ./configs/credential --interval 2s &
 ```
 
-## Core Operations
+---
 
-### 1. Submit Buy/Sell Orders
+## L1 Research Layer
 
-To submit an order, append a new ORDER entry to `fs/trade/beancount.txt`:
+The research layer aggregates news, topics and custom data feeds for the symbols in your watchlist.
 
-**Market Order Format:**
-```
-2026-02-12 * "ORDER" "BUY AAPL.US"
-  ; intent_id: 20260212-001
-  ; side: BUY
-  ; symbol: AAPL.US
-  ; qty: 100
-  ; type: MARKET
-  ; tif: DAY
-
-```
-
-**Limit Order Format:**
-```
-2026-02-12 * "ORDER" "BUY AAPL.US"
-  ; intent_id: 20260212-002
-  ; side: BUY
-  ; symbol: AAPL.US
-  ; qty: 100
-  ; type: LIMIT
-  ; price: 180.50
-  ; tif: DAY
-
-```
-
-**Required Fields:**
-- `intent_id`: Unique identifier (use timestamp format: YYYYMMDD-HHMMSS or YYYYMMDD-NNN)
-- `side`: BUY or SELL
-- `symbol`: Stock symbol with market suffix (e.g., AAPL.US, 9988.HK, 700.HK)
-- `qty`: Quantity to trade
-- `type`: MARKET or LIMIT
-- `tif`: DAY (expires end of day) or GTC (good till canceled)
-- `price`: Required for LIMIT orders only
-
-**Important Notes:**
-- Always APPEND to the file, never overwrite
-- Include an empty line at the end
-- Controller polls every 2 seconds (default), so wait 2-3 seconds after submission
-- Each field MUST start with `  ;` (two spaces + semicolon)
-- Use proper date format: YYYY-MM-DD
-
-### 2. Check Order Results
-
-After submitting an order, wait 2-3 seconds and read `fs/trade/beancount.txt` to check results:
+### Configure Watchlist
 
 ```bash
-# Read the entire beancount file
-cat fs/trade/beancount.txt
-
-# Search for specific intent_id
-grep "intent_id: 20260212-001" fs/trade/beancount.txt -A 10
+cat > fs/research/watchlist.json << 'EOF'
+{
+  "symbols": ["AAPL.US", "TSLA.US", "700.HK"],
+  "refresh_interval": "5m",
+  "feeds": ["news", "topics"]
+}
+EOF
 ```
 
-The controller will append either:
-- **EXECUTION** record if order was filled
-- **REJECTION** record if order was rejected
+Controller behavior:
+- In real mode: fetches live news/topics from Content API for each symbol.
+- In mock mode: generates synthetic feeds automatically to enable full pipeline testing.
 
-**EXECUTION Example:**
-```
-2026-02-12 * "EXECUTION" "BUY AAPL.US @ 180.25"
-  ; intent_id: 20260212-001
-  ; order_id: 1234567890
-  ; side: BUY
-  ; symbol: AAPL.US
-  ; filled_qty: 100
-  ; avg_price: 180.25
-  ; status: FILLED
-  ; executed_at: 2026-02-12T10:30:15Z
-```
-
-**REJECTION Example:**
-```
-2026-02-12 * "REJECTION" "BUY AAPL.US"
-  ; intent_id: 20260212-001
-  ; reason: Insufficient funds
-```
-
-### 3. Get Stock Quotes
-
-To get real-time market data, create a track file:
+### Read Research Feeds
 
 ```bash
-# Request quote for AAPL.US
-touch fs/quote/track/AAPL.US
+# Latest news for a symbol
+cat fs/research/feeds/news/AAPL.US/latest.json
 
-# Wait 2-3 seconds for controller to process
-sleep 3
+# Community topics for a symbol
+cat fs/research/feeds/topics/AAPL.US/latest.json
 
-# Read quote data
-cat fs/quote/hold/AAPL.US/overview.json
-cat fs/quote/hold/AAPL.US/overview.txt
+# Aggregated research summary across all symbols
+cat fs/research/summary.json
 ```
 
-**Available Quote Files:**
-- `overview.json` / `overview.txt`: Real-time price, volume, change
-- `D.json`: Daily K-line (120 days)
-- `W.json`: Weekly K-line (52 weeks)
-- `5D.json`: 5-minute K-line
-- `intraday.json`: Intraday tick data
+### Inject Custom Research Data
 
-**Quote JSON Format:**
-```json
+AI agents can write custom research data directly:
+
+```bash
+mkdir -p fs/research/feeds/custom
+cat > fs/research/feeds/custom/my_analysis.json << 'EOF'
+{
+  "name": "sector_rotation_analysis",
+  "created_at": "2026-04-01T07:00:00Z",
+  "author": "claude-agent",
+  "data": {
+    "recommendation": "overweight_tech",
+    "confidence": 0.82
+  }
+}
+EOF
+```
+
+---
+
+## L2 Signal Layer
+
+The signal layer converts market data into actionable trading signals.
+
+### Create Signal Definitions
+
+Signal definitions are JSON files in `fs/signal/definitions/`. The controller evaluates builtin signals every cycle.
+
+**Built-in Signal: SMA Crossover**
+```bash
+cat > fs/signal/definitions/sma_cross.json << 'EOF'
+{
+  "name": "sma_crossover",
+  "type": "builtin",
+  "enabled": true,
+  "symbols": ["AAPL.US", "TSLA.US"],
+  "params": {
+    "indicator": "SMA_CROSS",
+    "fast_period": 5,
+    "slow_period": 20
+  }
+}
+EOF
+```
+
+**Built-in Signal: RSI**
+```bash
+cat > fs/signal/definitions/rsi.json << 'EOF'
+{
+  "name": "rsi_signal",
+  "type": "builtin",
+  "enabled": true,
+  "symbols": ["AAPL.US"],
+  "params": {
+    "indicator": "RSI",
+    "period": 14,
+    "overbought": 70,
+    "oversold": 30
+  }
+}
+EOF
+```
+
+**Built-in Signal: Price Change**
+```bash
+cat > fs/signal/definitions/price_change.json << 'EOF'
+{
+  "name": "price_momentum",
+  "type": "builtin",
+  "enabled": true,
+  "symbols": ["TSLA.US"],
+  "params": {
+    "indicator": "PRICE_CHANGE",
+    "threshold_pct": 5.0,
+    "window": 5
+  }
+}
+EOF
+```
+
+**External Signal (Agent-computed)**
+```bash
+# Agent writes signal output directly
+mkdir -p fs/signal/output/AAPL.US
+cat > fs/signal/output/AAPL.US/latest.json << 'EOF'
 {
   "symbol": "AAPL.US",
-  "last_done": 180.50,
-  "prev_close": 179.00,
-  "open": 179.50,
-  "high": 181.00,
-  "low": 178.50,
-  "volume": 45000000,
-  "turnover": 8100000000,
-  "timestamp": "2026-02-12T16:00:00Z"
+  "updated_at": "2026-04-01T08:00:00Z",
+  "signals": [
+    {
+      "name": "llm_sentiment",
+      "value": "BULLISH",
+      "strength": 0.78,
+      "detail": "Positive earnings sentiment detected",
+      "computed_at": "2026-04-01T08:00:00Z"
+    }
+  ]
+}
+EOF
+```
+
+### Read Signal Output
+
+```bash
+# All active signals across all symbols
+cat fs/signal/active.json
+
+# Per-symbol signal output
+cat fs/signal/output/AAPL.US/latest.json
+
+# Signal history (append-only JSONL)
+cat fs/signal/output/AAPL.US/history.jsonl
+```
+
+**active.json example:**
+```json
+{
+  "updated_at": "2026-04-01T08:05:00Z",
+  "signals": [
+    { "symbol": "AAPL.US", "name": "sma_crossover", "value": "BULLISH", "strength": 0.72 },
+    { "symbol": "AAPL.US", "name": "rsi_signal",    "value": "NEUTRAL", "strength": 0.45 },
+    { "symbol": "TSLA.US", "name": "sma_crossover", "value": "BEARISH", "strength": 0.61 }
+  ]
 }
 ```
 
-### 4. Check Account Status
+Signal values: `BULLISH`, `BEARISH`, `NEUTRAL`, `OVERBOUGHT`, `OVERSOLD`, `SURGE`, `DROP`
+
+---
+
+## L3 Portfolio Layer
+
+The portfolio layer manages target allocations and rebalancing.
+
+### Set Portfolio Target
 
 ```bash
-# View account balance and summary
-cat fs/account/state.json
-```
-
-**state.json Format:**
-```json
+cat > fs/portfolio/target.json << 'EOF'
 {
-  "cash": 10000.00,
-  "market_value": 18050.00,
-  "total_value": 28050.00,
-  "available": 10000.00,
-  "updated_at": "2026-02-12T10:30:00Z"
+  "version": 1,
+  "updated_at": "2026-04-01T00:00:00Z",
+  "total_capital_pct": 0.90,
+  "cash_reserve_pct": 0.10,
+  "positions": {
+    "AAPL.US": { "weight": 0.40 },
+    "TSLA.US": { "weight": 0.35 },
+    "700.HK":  { "weight": 0.15 },
+    "NVDA.US": { "weight": 0.10 }
+  }
 }
+EOF
 ```
 
-### 5. View Positions and P&L
+### Read Portfolio State
 
 ```bash
-# View position-level P&L
-cat fs/account/pnl.json
+# Current portfolio positions and weights
+cat fs/portfolio/current.json
 
-# View portfolio with current quotes
-cat fs/quote/portfolio.json
+# Target vs current comparison
+cat fs/portfolio/diff.json
+
+# Historical snapshots
+ls fs/portfolio/history/
 ```
 
-**pnl.json Format:**
+**diff.json example:**
 ```json
 {
-  "positions": [
+  "updated_at": "2026-04-01T08:10:00Z",
+  "target_version": 1,
+  "requires_rebalance": true,
+  "adjustments": [
     {
       "symbol": "AAPL.US",
-      "qty": 100,
-      "avg_cost": 175.50,
-      "current_price": 180.50,
-      "market_value": 18050.00,
-      "cost_basis": 17550.00,
-      "unrealized_pnl": 500.00,
-      "unrealized_pnl_percent": 2.85
+      "current_weight": 0.28,
+      "target_weight": 0.40,
+      "drift": -0.12,
+      "action": "BUY",
+      "estimated_value": 12000
     }
-  ],
-  "total_unrealized_pnl": 500.00,
-  "updated_at": "2026-02-12T10:30:00Z"
+  ]
 }
 ```
 
-### 6. Set Risk Control Rules
+### Trigger Rebalance
 
-Configure automatic stop-loss and take-profit by editing `fs/trade/risk_control.json`:
+**Manual rebalance** (write pending orders):
+```bash
+cat > fs/portfolio/rebalance/pending.json << 'EOF'
+{
+  "rebalance_id": "rebal-20260401-001",
+  "created_at": "2026-04-01T08:10:00Z",
+  "orders": [
+    {
+      "symbol": "AAPL.US",
+      "side": "BUY",
+      "qty": 50,
+      "order_type": "MARKET",
+      "tif": "DAY"
+    }
+  ]
+}
+EOF
+```
+
+**Auto-rebalance mode** (controller creates pending orders automatically when drift exceeds threshold):
+```bash
+./build/longbridge-fs controller --root ./fs --mock --auto-rebalance &
+```
+
+---
+
+## L4 Risk Control Layer
+
+The risk layer enforces pre-trade checks and monitors trading limits.
+
+### Configure Risk Policy
 
 ```bash
-# Create or update risk control configuration
+cat > fs/trade/risk/policy.json << 'EOF'
+{
+  "version": 1,
+  "enabled": true,
+  "mode": "ENFORCE",
+  "pre_trade_checks": true,
+  "post_trade_monitoring": true,
+  "daily_loss_limit": {
+    "enabled": true,
+    "max_loss_pct": 0.03,
+    "action": "HALT"
+  },
+  "order_frequency": {
+    "enabled": true,
+    "max_orders_per_hour": 20,
+    "max_orders_per_day": 100
+  }
+}
+EOF
+```
+
+Risk modes:
+- `ENFORCE` (default): reject orders that violate rules
+- `WARN`: log violations but allow orders through
+- `DISABLED`: skip all pre-trade checks
+
+### Configure Pre-Trade Rules
+
+```bash
+cat > fs/trade/risk/pre_trade.json << 'EOF'
+{
+  "max_single_order_pct": 0.10,
+  "max_single_order_value": 50000,
+  "allowed_symbols": [],
+  "blocked_symbols": ["MEME.US"],
+  "allowed_sides": ["BUY", "SELL"],
+  "require_limit_price": false,
+  "max_deviation_from_market_pct": 0.05
+}
+EOF
+```
+
+### Configure Position Limits
+
+```bash
+cat > fs/trade/risk/position_limits.json << 'EOF'
+{
+  "max_position_pct": 0.25,
+  "max_positions_count": 15,
+  "sector_limits": {},
+  "per_symbol_limits": {
+    "TSLA.US": { "max_pct": 0.10 }
+  }
+}
+EOF
+```
+
+### Configure Stop-Loss / Take-Profit (Legacy Risk Control)
+
+```bash
 cat > fs/trade/risk_control.json << 'EOF'
 {
   "AAPL.US": {
@@ -224,34 +376,203 @@ cat > fs/trade/risk_control.json << 'EOF'
     "take_profit": 200.00,
     "qty": "100"
   },
-  "9988.HK": {
-    "stop_loss": 150.00,
-    "take_profit": 180.00
+  "TSLA.US": {
+    "stop_loss": 200.00,
+    "take_profit": 350.00
   }
 }
 EOF
 ```
 
-**How it works:**
-- Controller monitors prices for configured symbols
-- When price hits `stop_loss`, automatically submits SELL order
-- When price hits `take_profit`, automatically submits SELL order
-- Rule is removed after triggering to prevent duplicate orders
-- If `qty` is specified, sells that quantity; otherwise sells entire position
-
-### 7. Stop Controller Safely
-
-To safely stop the controller daemon:
+### Read Risk Status
 
 ```bash
-touch fs/.kill
+# Current risk state and counters
+cat fs/trade/risk/status.json
+
+# Today's order/loss counters
+cat fs/trade/risk/daily_limits.json
+
+# Violations log (append-only)
+cat fs/trade/risk/violations.jsonl
 ```
 
-The controller will detect this file in the next polling cycle and exit gracefully without affecting pending orders.
+---
+
+## L5 Execution Layer
+
+### Submit Standard Orders
+
+Append ORDER entries to `fs/trade/beancount.txt`:
+
+**Market Order:**
+```bash
+cat >> fs/trade/beancount.txt << 'EOF'
+2026-04-01 * "ORDER" "BUY AAPL.US"
+  ; intent_id: 20260401-001
+  ; side: BUY
+  ; symbol: AAPL.US
+  ; qty: 100
+  ; type: MARKET
+  ; tif: DAY
+
+EOF
+```
+
+**Limit Order with traceability:**
+```bash
+cat >> fs/trade/beancount.txt << 'EOF'
+2026-04-01 * "ORDER" "BUY AAPL.US from signal"
+  ; intent_id: 20260401-002
+  ; side: BUY
+  ; symbol: AAPL.US
+  ; qty: 100
+  ; type: LIMIT
+  ; price: 180.50
+  ; tif: DAY
+  ; source: rebalance
+  ; rebalance_id: rebal-20260401-001
+  ; signal_refs: sma_crossover,rsi_signal
+
+EOF
+```
+
+### Submit Algorithmic Orders
+
+**TWAP (Time-Weighted Average Price):**
+```bash
+cat >> fs/trade/beancount.txt << 'EOF'
+2026-04-01 * "ORDER" "BUY AAPL.US via TWAP"
+  ; intent_id: 20260401-003
+  ; side: BUY
+  ; symbol: AAPL.US
+  ; qty: 500
+  ; type: LIMIT
+  ; price: 182.00
+  ; tif: DAY
+  ; algo: TWAP
+  ; algo_duration: 30m
+  ; algo_slices: 5
+
+EOF
+```
+
+**ICEBERG (hidden quantity):**
+```bash
+cat >> fs/trade/beancount.txt << 'EOF'
+2026-04-01 * "ORDER" "BUY AAPL.US via ICEBERG"
+  ; intent_id: 20260401-004
+  ; side: BUY
+  ; symbol: AAPL.US
+  ; qty: 1000
+  ; type: LIMIT
+  ; price: 182.00
+  ; tif: GTC
+  ; algo: ICEBERG
+  ; algo_slices: 10
+
+EOF
+```
+
+### Check Order Results
+
+```bash
+# Wait for controller to process
+sleep 3
+
+# Check for EXECUTION or REJECTION
+grep -A 10 "intent_id: 20260401-001" fs/trade/beancount.txt
+```
+
+**EXECUTION example:**
+```
+2026-04-01 * "EXECUTION" "BUY AAPL.US @ 180.25"
+  ; intent_id: 20260401-001
+  ; order_id: 1234567890
+  ; side: BUY
+  ; symbol: AAPL.US
+  ; filled_qty: 100
+  ; avg_price: 180.25
+  ; status: FILLED
+  ; executed_at: 2026-04-01T10:30:15Z
+```
+
+**REJECTION example:**
+```
+2026-04-01 * "REJECTION" "BUY AAPL.US"
+  ; intent_id: 20260401-001
+  ; reason: max_single_order_pct exceeded
+```
+
+---
 
 ## Common Workflows
 
-### Workflow 1: Buy Stock at Market Price
+### Workflow 1: Full Harness Pipeline (Research → Signal → Portfolio → Execution)
+
+```bash
+# Step 1: Initialize FS
+./build/longbridge-fs init --root ./fs
+
+# Step 2: Configure watchlist (L1)
+cat > fs/research/watchlist.json << 'EOF'
+{"symbols": ["AAPL.US", "TSLA.US"], "refresh_interval": "5m", "feeds": ["news", "topics"]}
+EOF
+
+# Step 3: Define signals (L2)
+cat > fs/signal/definitions/sma.json << 'EOF'
+{"name": "sma_crossover", "type": "builtin", "enabled": true,
+ "symbols": ["AAPL.US"], "params": {"indicator": "SMA_CROSS", "fast_period": 5, "slow_period": 20}}
+EOF
+
+# Step 4: Set portfolio target (L3)
+cat > fs/portfolio/target.json << 'EOF'
+{"version": 1, "total_capital_pct": 0.90, "cash_reserve_pct": 0.10,
+ "positions": {"AAPL.US": {"weight": 0.40}}}
+EOF
+
+# Step 5: Start controller in mock mode (enables full pipeline simulation)
+./build/longbridge-fs controller --root ./fs --mock --interval 2s &
+
+# Step 6: Wait and inspect pipeline output
+sleep 5
+cat fs/research/summary.json
+cat fs/signal/active.json
+cat fs/portfolio/diff.json
+
+# Step 7: Submit orders (L5)
+cat >> fs/trade/beancount.txt << 'EOF'
+2026-04-01 * "ORDER" "BUY AAPL.US"
+  ; intent_id: 20260401-100
+  ; side: BUY
+  ; symbol: AAPL.US
+  ; qty: 50
+  ; type: MARKET
+  ; tif: DAY
+
+EOF
+sleep 3
+tail -20 fs/trade/beancount.txt
+
+# Step 8: Stop controller
+touch fs/.kill
+```
+
+### Workflow 2: Signal-Driven Order Submission
+
+```bash
+# Read active signals and submit orders for BULLISH signals
+SIGNALS=$(cat fs/signal/active.json)
+echo "$SIGNALS" | python3 -c "
+import json, sys
+active = json.load(sys.stdin)
+for s in active.get('signals', []):
+    if s['value'] == 'BULLISH' and s['strength'] > 0.6:
+        print(f\"Buy signal: {s['symbol']} ({s['name']}, strength={s['strength']:.2f})\")
+"
+```
+
+### Workflow 3: Buy Stock at Market Price
 
 ```bash
 # Step 1: Check current price
@@ -261,8 +582,8 @@ cat fs/quote/hold/AAPL.US/overview.json
 
 # Step 2: Submit market buy order
 cat >> fs/trade/beancount.txt << 'EOF'
-2026-02-12 * "ORDER" "BUY AAPL.US"
-  ; intent_id: 20260212-001
+2026-04-01 * "ORDER" "BUY AAPL.US"
+  ; intent_id: 20260401-001
   ; side: BUY
   ; symbol: AAPL.US
   ; qty: 100
@@ -279,150 +600,110 @@ tail -20 fs/trade/beancount.txt
 cat fs/account/pnl.json
 ```
 
-### Workflow 2: Set Stop-Loss for Existing Position
+### Workflow 4: Set Stop-Loss for Existing Position
 
 ```bash
-# Step 1: Check current positions
-cat fs/account/pnl.json
-
-# Step 2: Get current price
+# Set stop-loss at 5% below current price for AAPL.US
 touch fs/quote/track/AAPL.US
 sleep 3
-CURRENT_PRICE=$(jq -r '.last_done' fs/quote/hold/AAPL.US/overview.json)
-
-# Step 3: Set stop-loss at 5% below current price
+CURRENT_PRICE=$(jq -r '.last' fs/quote/hold/AAPL.US/overview.json)
 STOP_PRICE=$(echo "$CURRENT_PRICE * 0.95" | bc)
-jq --arg symbol "AAPL.US" --arg stop "$STOP_PRICE" \
-  '.[$symbol] = {"stop_loss": ($stop | tonumber)}' \
+
+jq --arg symbol "AAPL.US" --argjson stop "$STOP_PRICE" \
+  '.[$symbol] = {"stop_loss": $stop}' \
   fs/trade/risk_control.json > /tmp/risk.json && \
   mv /tmp/risk.json fs/trade/risk_control.json
 ```
 
-### Workflow 3: Monitor and Trade Based on Price
+---
 
-```bash
-# Monitor AAPL, buy when price drops below 175
-while true; do
-  touch fs/quote/track/AAPL.US
-  sleep 3
-  PRICE=$(jq -r '.last_done' fs/quote/hold/AAPL.US/overview.json)
-  echo "Current price: $PRICE"
-
-  if (( $(echo "$PRICE < 175" | bc -l) )); then
-    # Submit buy order
-    cat >> fs/trade/beancount.txt << EOF
-2026-02-12 * "ORDER" "BUY AAPL.US"
-  ; intent_id: $(date +%Y%m%d-%H%M%S)
-  ; side: BUY
-  ; symbol: AAPL.US
-  ; qty: 100
-  ; type: MARKET
-  ; tif: DAY
-
-EOF
-    echo "Buy order submitted at $PRICE"
-    break
-  fi
-
-  sleep 10
-done
-```
-
-## Stock Symbol Format
-
-Always use the correct symbol format with market suffix:
-
-**US Stocks:**
-- AAPL.US (Apple)
-- MSFT.US (Microsoft)
-- TSLA.US (Tesla)
-- NVDA.US (NVIDIA)
-
-**HK Stocks:**
-- 700.HK (Tencent)
-- 9988.HK (Alibaba)
-- 0001.HK (CKH Holdings)
-
-**CN Stocks:**
-- 600519.SH (Kweichow Moutai - Shanghai)
-- 000001.SZ (Ping An Bank - Shenzhen)
-
-## Error Handling
-
-### Order Rejected
-
-If you see a REJECTION record, common reasons include:
-- Insufficient funds
-- Market closed
-- Invalid symbol
-- Invalid price (outside allowable range)
-- Invalid quantity (less than minimum lot size)
-
-**Solution:** Check the rejection reason and fix the order parameters.
-
-### Controller Not Responding
-
-If orders are not being processed:
-1. Check if controller is running: `ps aux | grep longbridge-fs`
-2. Check controller logs for errors
-3. Restart controller if needed
-4. Use `--mock` mode for testing
-
-### File Format Errors
-
-If controller logs show parsing errors:
-- Verify Beancount format (indentation with 2 spaces, semicolon prefix)
-- Check date format (YYYY-MM-DD)
-- Ensure all required fields are present
-- Verify no extra characters or wrong encoding
-
-## Tips for AI Agents
-
-1. **Always wait after operations**: File operations need 2-3 seconds for controller to process
-2. **Use unique intent_ids**: Use timestamp-based IDs to avoid conflicts
-3. **Append, don't overwrite**: Always append to beancount.txt, never overwrite
-4. **Check results**: Always verify order execution by reading the beancount file
-5. **Handle errors gracefully**: Orders can be rejected; check for REJECTION records
-6. **Use Mock mode for testing**: Start controller with `--mock` flag during development
-7. **Read before acting**: Check current state (positions, prices) before submitting orders
-
-## File System Reference
+## Quick Reference: All Layer Files
 
 ```
 fs/
+├── research/                         # L1 Research
+│   ├── watchlist.json                #   <- WRITE: symbols to track
+│   ├── summary.json                  #   -> READ:  aggregated feed status
+│   └── feeds/
+│       ├── news/{SYMBOL}/latest.json #   -> READ:  news articles
+│       ├── topics/{SYMBOL}/latest.json#  -> READ:  community topics
+│       └── custom/{name}.json        #   <- WRITE: agent custom data
+│
+├── signal/                           # L2 Signal
+│   ├── definitions/{name}.json       #   <- WRITE: signal configs
+│   ├── active.json                   #   -> READ:  current signals
+│   └── output/{SYMBOL}/
+│       ├── latest.json               #   -> READ:  per-symbol output
+│       └── history.jsonl             #   -> READ:  signal history
+│
+├── portfolio/                        # L3 Portfolio
+│   ├── target.json                   #   <- WRITE: target weights
+│   ├── current.json                  #   -> READ:  actual weights
+│   ├── diff.json                     #   -> READ:  drift / actions
+│   └── rebalance/pending.json        #   <- WRITE: pending orders
+│
 ├── account/
-│   ├── state.json           # Account balance and summary
-│   └── pnl.json             # Position-level P&L
+│   ├── state.json                    #   -> READ:  balances and orders
+│   └── pnl.json                      #   -> READ:  per-position P&L
+│
 ├── trade/
-│   ├── beancount.txt        # Main order ledger (read/write)
-│   ├── risk_control.json    # Risk control rules (read/write)
-│   └── blocks/              # Archived orders (read-only)
-│       └── block_NNNN.txt
+│   ├── beancount.txt                 #   <- WRITE ORDER / -> READ EXECUTION
+│   ├── risk_control.json             #   <- WRITE: stop-loss/take-profit
+│   ├── blocks/                       #   -> READ:  archived orders
+│   └── risk/                         # L4 Risk
+│       ├── policy.json               #   <- WRITE: risk policy
+│       ├── pre_trade.json            #   <- WRITE: order limits
+│       ├── position_limits.json      #   <- WRITE: position caps
+│       ├── daily_limits.json         #   -> READ:  daily counters
+│       ├── status.json               #   -> READ:  risk gate status
+│       └── violations.jsonl          #   -> READ:  violation log
+│
 └── quote/
-    ├── track/               # Create files here to request quotes
-    ├── hold/                # Quote data stored here
-    │   └── SYMBOL/
-    │       ├── overview.json
-    │       ├── overview.txt
-    │       ├── D.json
-    │       └── intraday.json
-    └── portfolio.json       # Full portfolio with quotes
+    ├── track/                        #   <- CREATE: request a quote
+    ├── hold/{SYMBOL}/
+    │   ├── overview.json             #   -> READ:  current price
+    │   ├── D.json                    #   -> READ:  daily kline (120d)
+    │   └── intraday.json             #   -> READ:  intraday ticks
+    └── portfolio.json                #   -> READ:  portfolio with quotes
 ```
+
+## Controller Options
+
+| Flag                | Default      | Description                              |
+|---------------------|--------------|------------------------------------------|
+| `--root`            | `.`          | FS root directory                        |
+| `--interval`        | `2s`         | Poll interval                            |
+| `--mock`            | `false`      | Mock mode — no API calls, full pipeline  |
+| `--auto-rebalance`  | `false`      | Auto-create rebalance orders on drift    |
+| `--compact-after`   | `10`         | Compact ledger after N executions        |
+| `--credential`      | `credential` | Credential file (real mode)              |
+
+In **mock mode** (`--mock`):
+- All five layers run without API calls
+- Research feeds are populated with synthetic data
+- Kline data is generated automatically for signal computation
+- Orders are simulated with realistic mock fills
+- Fully self-contained for testing and development
+
+## Stock Symbol Format
+
+**US Stocks:** `AAPL.US`, `MSFT.US`, `TSLA.US`, `NVDA.US`
+**HK Stocks:** `700.HK`, `9988.HK`, `0001.HK`
+**CN Stocks:** `600519.SH`, `000001.SZ`
+
+## Tips for AI Agents
+
+1. **Always wait after operations**: Controller needs 2-3 seconds per cycle to process files
+2. **Mock mode for development**: Use `--mock` to test the full pipeline without credentials
+3. **Read before acting**: Check `signal/active.json` and `portfolio/diff.json` before submitting orders
+4. **Append, don't overwrite**: Always append to `beancount.txt`, never overwrite
+5. **Use unique intent_ids**: Use timestamp-based IDs to avoid conflicts
+6. **Signal to order traceability**: Always include `signal_refs` in orders for audit trail
+7. **Stop gracefully**: Use `touch fs/.kill` to stop the controller cleanly
 
 ## Additional Resources
 
 - [README](../README.md) - Project overview and quick start
-- [AI Agent Guide](../docs/ai-agent-guide.md) - Detailed programming guide
-- [Architecture](../docs/architecture.md) - System design and internals
-- [Longbridge API](https://github.com/longportapp/openapi-go) - Official SDK documentation
-
-## Summary
-
-This skill allows you to trade stocks through simple file operations:
-- **Write** to `fs/trade/beancount.txt` to submit orders
-- **Create** files in `fs/quote/track/` to request quotes
-- **Read** from `fs/account/` and `fs/quote/hold/` to check status
-- **Edit** `fs/trade/risk_control.json` to configure risk rules
-- **Create** `fs/.kill` to stop controller
-
-All operations are file-based, making them natural for AI agents and easy to audit.
+- [End-to-End Demo](../demo_e2e.sh) - Full pipeline demo script (mock mode)
+- [Basic Demo](../demo.sh) - Basic execution demo
+- [Spec](../spec.md) - Full architecture specification

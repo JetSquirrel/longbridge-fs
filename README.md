@@ -122,16 +122,21 @@ fs/
 
 ## 文档
 
+### 核心指南
 - [文件系统结构](docs/filesystem.md)
 - [订单格式](docs/order-format.md)
 - [行情数据](docs/market-data.md)
 - [风控配置](docs/risk-control.md)
 - [AI Agent 使用指南](docs/ai-agent-guide.md)
 - [架构设计](docs/architecture.md)
-- **[Phase 1: 五层架构实现](docs/phase1-implementation.md)** ⭐ NEW
-- [五层架构完整规范](docs/five-layer-spec.md)
-- [五层架构任务分解](docs/five-layer-task.md)
-- [更多条目索引](docs/README.md)
+
+### 五层架构
+- **[Phase 1: 五层架构实现](docs/phase1-implementation.md)** - 基础管道与风控层
+- [五层架构完整规范](docs/five-layer-spec.md) - 详细设计文档
+- [实现进度日志](docs/implementation-log.md) - Phase 1-5 完成状态
+
+### 完整文档
+- [文档索引](docs/README.md) - 所有文档的完整列表
 
 ## 开发
 
